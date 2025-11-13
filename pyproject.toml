@@ -1,0 +1,38 @@
+[project]
+name = "deep-research-agent"
+version = "0.1.0"
+description = "An efficient deep research agent using LangGraph with free tools"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.57",
+    "langchain>=0.3.13",
+    "langchain-google-genai>=2.0.8",
+    "langchain-community>=0.3.13",
+    "duckduckgo-search>=7.0.0",
+    "python-dotenv>=1.0.1",
+    "beautifulsoup4>=4.12.3",
+    "requests>=2.32.3",
+    "markdown>=3.7",
+    "pydantic>=2.10.6",
+    "aiohttp>=3.11.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4",
+    "black>=24.10.0",
+    "ruff>=0.8.4",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
