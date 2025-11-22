@@ -8,19 +8,20 @@ import json
 from src.utils.web_utils import WebSearchTool as WebSearchImpl, ContentExtractor as ContentExtractorImpl
 from src.state import SearchResult
 from src.utils.citations import CitationFormatter
+from src.config import config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# Initialize tool implementations
-_search_impl = WebSearchImpl(max_results=3)
+# Initialize tool implementations with config values
+_search_impl = WebSearchImpl(max_results=config.max_search_results_per_query)
 _extractor_impl = ContentExtractorImpl(timeout=10)
 _citation_formatter = CitationFormatter()
 
 
 @tool
-async def web_search(query: str, max_results: int = 3) -> List[dict]:
+async def web_search(query: str, max_results: int = None) -> List[dict]:
     """Search the web for information using DuckDuckGo search engine.
     
     This tool allows you to search the internet for current information, articles, 
@@ -38,7 +39,7 @@ async def web_search(query: str, max_results: int = 3) -> List[dict]:
         query: The search query string. Should be clear and specific.
                Examples: "climate change effects 2024", "machine learning best practices",
                "renewable energy trends research"
-        max_results: Maximum number of search results to return (default: 3, max: 10)
+        max_results: Maximum number of search results to return (default: from config, max: 10)
         
     Returns:
         List of dictionaries, each containing:
@@ -52,6 +53,10 @@ async def web_search(query: str, max_results: int = 3) -> List[dict]:
         # Returns list of relevant articles about AI in healthcare
     """
     try:
+        # Use config value if not specified
+        if max_results is None:
+            max_results = config.max_search_results_per_query
+            
         # Update max_results if different
         if _search_impl.max_results != max_results:
             _search_impl.max_results = max_results

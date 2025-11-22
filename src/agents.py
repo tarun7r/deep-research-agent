@@ -5,6 +5,7 @@ from typing import List
 import logging
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain.agents import create_agent
@@ -21,15 +22,40 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def get_llm(temperature: float = 0.7, model_override: str = None):
+    """Get LLM instance based on configuration.
+    
+    Args:
+        temperature: Temperature for the LLM
+        model_override: Optional model name to override config.model_name
+        
+    Returns:
+        LLM instance (ChatOllama or ChatGoogleGenerativeAI)
+    """
+    model_name = model_override or config.model_name
+    
+    if config.model_provider == "ollama":
+        logger.info(f"Using Ollama model: {model_name}")
+        return ChatOllama(
+            model=model_name,
+            base_url=config.ollama_base_url,
+            temperature=temperature,
+            num_ctx=8192,  # Context window
+        )
+    else:  # gemini
+        logger.info(f"Using Gemini model: {model_name}")
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=config.google_api_key,
+            temperature=temperature
+        )
+
+
 class ResearchPlanner:
     """Autonomous agent responsible for planning research strategy."""
     
     def __init__(self):
-        self.llm = ChatGoogleGenerativeAI(
-            model=config.model_name,
-            google_api_key=config.google_api_key,
-            temperature=0.7
-        )
+        self.llm = get_llm(temperature=0.7)
         # Note: Planning agent uses LLM directly with structured output for reliability
         # Tool calling works better for search/extraction tasks
         self.max_retries = 3
@@ -118,18 +144,19 @@ Create a detailed research plan in JSON format:
                 if not plan_data["search_queries"]:
                     raise ValueError("No search queries generated")
                 
-                # Convert to ResearchPlan
+                # Convert to ResearchPlan with HARD LIMITS enforced
                 plan = ResearchPlan(
                     topic=plan_data["topic"],
-                    objectives=plan_data["objectives"],
+                    objectives=plan_data["objectives"][:5],  # Max 5 objectives
                     search_queries=[
                         SearchQuery(query=sq["query"], purpose=sq["purpose"])
-                        for sq in plan_data["search_queries"]
+                        for sq in plan_data["search_queries"][:config.max_search_queries]
                     ],
-                    report_outline=plan_data["report_outline"]
+                    report_outline=plan_data["report_outline"][:config.max_report_sections]
                 )
                 
-                logger.info(f"Created plan with {len(plan.search_queries)} queries")
+                logger.info(f"Created plan with {len(plan.search_queries)} queries (enforced max: {config.max_search_queries})")
+                logger.info(f"Report outline has {len(plan.report_outline)} sections (enforced max: {config.max_report_sections})")
                 
                 # Return dict updates - LangGraph merges into state
                 return {
@@ -164,11 +191,7 @@ class ResearchSearcher:
     """Autonomous agent responsible for executing research searches."""
     
     def __init__(self):
-        self.llm = ChatGoogleGenerativeAI(
-            model=config.model_name,
-            google_api_key=config.google_api_key,
-            temperature=0.3
-        )
+        self.llm = get_llm(temperature=0.3)
         self.tools = get_research_tools(agent_type="search")
         self.credibility_scorer = CredibilityScorer()
         self.max_retries = 3
@@ -186,22 +209,26 @@ class ResearchSearcher:
         
         logger.info(f"Autonomous agent researching: {len(state.plan.search_queries)} planned queries")
         
-        # Create system prompt for autonomous agent
-        system_prompt = """You are an expert research assistant with access to web search and content extraction tools.
+        # Create system prompt for autonomous agent with config-based limits
+        max_searches = config.max_search_queries
+        max_results_per_search = config.max_search_results_per_query
+        expected_total_results = max_searches * max_results_per_search
+        
+        system_prompt = f"""You are an expert research assistant with access to web search and content extraction tools.
 
 Your task is to efficiently research the given topic by:
-1. Executing the planned search queries (keep it focused)
+1. Executing the planned search queries (limit to {max_searches} searches maximum)
 2. Extracting detailed content from the most relevant sources
 3. Gathering sufficient information to answer the research objectives
 
 Guidelines:
-- Use web_search to find relevant sources (limit to 2-3 searches)
-- Use extract_webpage_content to read full articles from the top 3-5 promising URLs
+- Use web_search to find relevant sources (limit to {max_searches} searches, {max_results_per_search} results each)
+- Use extract_webpage_content to read full articles from the top {expected_total_results} promising URLs
 - Focus on authoritative, credible sources
 - Prioritize quality over quantity
-- Extract content from 3-5 high-quality sources
+- Extract content from {expected_total_results} high-quality sources
 
-When you have gathered sufficient information (5-8 search results with 3-5 full content extractions), respond with:
+When you have gathered sufficient information ({expected_total_results} search results with content extractions), respond with:
 RESEARCH_COMPLETE: [brief summary of what you found]"""
         
         # Create autonomous agent using LangChain's create_agent
@@ -374,11 +401,7 @@ class ResearchSynthesizer:
     """Autonomous agent responsible for synthesizing research findings."""
     
     def __init__(self):
-        self.llm = ChatGoogleGenerativeAI(
-            model=config.summarization_model,
-            google_api_key=config.google_api_key,
-            temperature=0.3
-        )
+        self.llm = get_llm(temperature=0.3, model_override=config.summarization_model)
         self.tools = get_research_tools(agent_type="synthesis")
         self.max_retries = 3
         
@@ -501,7 +524,7 @@ Please analyze these search results and extract key findings. You may use the ex
                         findings = json.loads(json_match.group(0))
                         if isinstance(findings, list):
                             key_findings = [
-                                str(f) if isinstance(f, dict) else f 
+                                str(f)  # Convert all items to strings (handles int, dict, etc.)
                                 for f in findings
                             ]
                         else:
@@ -567,11 +590,7 @@ class ReportWriter:
     """Autonomous agent responsible for writing research reports."""
     
     def __init__(self, citation_style: str = 'apa'):
-        self.llm = ChatGoogleGenerativeAI(
-            model=config.model_name,
-            google_api_key=config.google_api_key,
-            temperature=0.7
-        )
+        self.llm = get_llm(temperature=0.7)
         self.tools = get_research_tools(agent_type="writing")
         self.max_retries = 3
         self.citation_style = citation_style

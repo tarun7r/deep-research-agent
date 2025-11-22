@@ -4,7 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2.57+-green.svg)](https://github.com/langchain-ai/langgraph)
 
-A production-ready multi-agent autonomous research system built with LangGraph and LangChain. Four specialized agents work together to conduct comprehensive research on any topic and generate detailed, citation-backed reports with credibility scoring and quality metrics.
+A production-ready multi-agent autonomous research system built with LangGraph and LangChain. Four specialized agents work together to conduct comprehensive research on any topic and generate detailed, citation-backed reports with credibility scoring and quality metrics. Supports both local models (Ollama) and cloud APIs (Gemini).
+
+**Actively seeking opportunities as an ML Engineer II / Data Scientist II**
 
 ## Demo
 https://github.com/user-attachments/assets/df8404c6-7423-4a49-864a-bd4d59885c1b
@@ -83,7 +85,7 @@ ResearchPlanner → ResearchSearcher → ResearchSynthesizer → ReportWriter
 
 - Python 3.11+
 - pip or uv package manager
-- Google Gemini API key ([Get one free](https://makersuite.google.com/app/apikey))
+- [Ollama](https://ollama.com/) (for local models) **OR** Google Gemini API key ([Get one free](https://makersuite.google.com/app/apikey))
 
 ### Setup
 
@@ -99,10 +101,50 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
-# Create a .env file in the root directory
-echo "GEMINI_API_KEY=your_api_key_here" > .env
+# Configure (choose one):
+# Option A - Ollama: Install Ollama, pull a model (e.g., ollama pull qwen2.5:7b)
+# Option B - Gemini: Get API key from https://makersuite.google.com/app/apikey
+
+# Create .env file (see Configuration section below)
 ```
+
+### Using Ollama (Local Models)
+
+Ollama allows you to run powerful LLMs locally on your machine without API costs or internet dependency.
+
+**Quick Start:**
+
+```bash
+# Install Ollama (macOS/Linux)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Or download from https://ollama.com for other platforms
+
+# Pull a recommended model
+ollama pull qwen2.5:7b
+
+# Verify it's working
+ollama run qwen2.5:7b "Hello, test message"
+```
+
+**Recommended Models for M1 Pro (16GB RAM):**
+
+| Model | Command | RAM | Best For |
+|-------|---------|-----|----------|
+| **Qwen2.5 7B** | `ollama pull qwen2.5:7b` | ~5-6GB | Research, reasoning, complex analysis (recommended) |
+| **Llama 3.1 8B** | `ollama pull llama3.1:8b` | ~6-7GB | Balanced performance, fast |
+| **Mistral 7B** | `ollama pull mistral:7b` | ~5GB | Fastest option, good quality |
+
+**Configuration:**
+
+Create a `.env` file:
+```bash
+MODEL_PROVIDER=ollama
+MODEL_NAME=qwen2.5:7b
+SUMMARIZATION_MODEL=qwen2.5:7b
+```
+
+> **Tip**: Ollama runs a local server at `http://localhost:11434` by default. The agent will automatically connect to it.
 
 ## Usage
 
@@ -160,34 +202,46 @@ The web interface provides:
 Environment variables in `.env`:
 
 ```bash
-# Required
-GEMINI_API_KEY=your_api_key_here
+# Model Provider (choose one)
+MODEL_PROVIDER=ollama                # Options: ollama, gemini
 
-# Optional - Model Settings
-MODEL_NAME=gemini-2.5-flash
-SUMMARIZATION_MODEL=gemini-2.5-flash
+# For Ollama
+MODEL_NAME=qwen2.5:7b                # Recommended: qwen2.5:7b, llama3.1:8b, mistral:7b
+SUMMARIZATION_MODEL=qwen2.5:7b
+OLLAMA_BASE_URL=http://localhost:11434
+
+# For Gemini (alternative)
+# MODEL_PROVIDER=gemini
+# GEMINI_API_KEY=your_api_key_here
+# MODEL_NAME=gemini-2.5-flash
+# SUMMARIZATION_MODEL=gemini-2.5-flash
 
 # Optional - Search Settings
-MAX_SEARCH_QUERIES=3              # Planned queries for agent
-MAX_SEARCH_RESULTS_PER_QUERY=3    # Results per search
-MAX_PARALLEL_SEARCHES=3           # Concurrent operations
-MIN_CREDIBILITY_SCORE=40          # Minimum credibility score (0-100) to filter sources
+MAX_SEARCH_QUERIES=3
+MAX_SEARCH_RESULTS_PER_QUERY=3
+MIN_CREDIBILITY_SCORE=40
 
 # Optional - Report Settings
-MAX_REPORT_SECTIONS=8             # Maximum report sections
-CITATION_STYLE=apa                 # Options: apa, mla, chicago, ieee
-
-# Optional - LangSmith Monitoring
-LANGCHAIN_TRACING_V2=false
-LANGCHAIN_API_KEY=your_langsmith_key
-LANGCHAIN_PROJECT=deep-research-agent
+MAX_REPORT_SECTIONS=8
+CITATION_STYLE=apa                   # Options: apa, mla, chicago, ieee
 ```
 
-### Configuration Details
+### Ollama vs Gemini
 
-- **MIN_CREDIBILITY_SCORE**: Sources below this threshold are filtered out before synthesis. Default 40 ensures only reasonable-quality sources are used.
-- **MAX_SEARCH_QUERIES**: Number of planned queries. The autonomous agent may execute more or fewer based on findings.
-- **CITATION_STYLE**: Choose from APA, MLA, Chicago, or IEEE citation formats.
+**Ollama (Local Models):**
+- Free, no API costs
+- Works offline, privacy-focused
+- Faster response times (no network latency)
+- No rate limits
+- Requires ~5-8GB RAM for good models
+- Initial model download (~4-5GB per model)
+
+**Gemini (Cloud API):**
+- No local resources needed
+- Latest cutting-edge models
+- Consistently fast across devices
+- Requires API key and internet
+- API costs (free tier available)
 
 ## Output Format
 
@@ -284,10 +338,19 @@ Sources are automatically filtered and sorted by credibility before synthesis.
 
 The core ideation, architecture design, and logic of this project are the result of original research and understanding. While AI tools were used to assist with code restructuring and implementation, the fundamental concepts, agent workflows, credibility scoring methodology, and overall system design reflect independent research and development.
 
+## Contact
+
+For questions, issues, or collaboration:
+
+- **GitHub**: [tarun7r](https://github.com/tarun7r)
+- **LinkedIn**: [Tarun Sai Goddu](https://www.linkedin.com/in/tarunsaigoddu/)
+- **Hugging Face**: [tarun7r](https://huggingface.co/tarun7r)
+- **Email**: tarunsaiaa@gmail.com
+
 ## License
 
 MIT License - See [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-Built with [LangGraph](https://github.com/langchain-ai/langgraph) and [LangChain](https://github.com/langchain-ai/langchain). Powered by [Google Gemini](https://ai.google.dev/). Web search via [DuckDuckGo](https://duckduckgo.com/).
+Built with [LangGraph](https://github.com/langchain-ai/langgraph) and [LangChain](https://github.com/langchain-ai/langchain). Supports [Ollama](https://ollama.com/) local models and [Google Gemini](https://ai.google.dev/) API. Web search via [DuckDuckGo](https://duckduckgo.com/).

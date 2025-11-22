@@ -14,20 +14,32 @@ load_dotenv(dotenv_path=env_path)
 class ResearchConfig(BaseModel):
     """Configuration for the research agent."""
 
-    # API Keys
+    # Model Provider Configuration
+    model_provider: str = Field(
+        default=os.getenv("MODEL_PROVIDER", "gemini"),
+        description="Model provider: 'gemini' or 'ollama'"
+    )
+    
+    # API Keys (only required for Gemini)
     google_api_key: str = Field(
         default_factory=lambda: os.getenv("GEMINI_API_KEY", ""),
-        description="Google/Gemini API key"
+        description="Google/Gemini API key (required if using Gemini)"
+    )
+    
+    # Ollama Configuration
+    ollama_base_url: str = Field(
+        default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        description="Ollama server URL"
     )
     
     # Model Configuration
     model_name: str = Field(
-        default="gemini-2.5-flash",
-        description="Gemini model to use for research and generation"
+        default=os.getenv("MODEL_NAME", "gemini-2.5-flash"),
+        description="Model to use for research and generation"
     )
     
     summarization_model: str = Field(
-        default="gemini-2.5-flash",
+        default=os.getenv("SUMMARIZATION_MODEL", "gemini-2.5-flash"),
         description="Model for summarizing search results (faster/cheaper)"
     )
     
@@ -83,13 +95,34 @@ class ResearchConfig(BaseModel):
     
     def validate_config(self) -> bool:
         """Validate that required configuration is present."""
-        if not self.google_api_key:
-            raise ValueError(
-                "GOOGLE_API_KEY is required. Get one from https://makersuite.google.com/app/apikey"
-            )
+        if self.model_provider == "gemini":
+            if not self.google_api_key:
+                raise ValueError(
+                    "GEMINI_API_KEY is required when using Gemini. Get one from https://makersuite.google.com/app/apikey"
+                )
+        elif self.model_provider == "ollama":
+            # Validate Ollama is accessible
+            try:
+                import requests
+                response = requests.get(f"{self.ollama_base_url}/api/tags", timeout=5)
+                if response.status_code != 200:
+                    raise ValueError(f"Ollama server not accessible at {self.ollama_base_url}")
+            except requests.exceptions.RequestException as e:
+                raise ValueError(f"Cannot connect to Ollama server at {self.ollama_base_url}: {e}")
+        else:
+            raise ValueError(f"Invalid MODEL_PROVIDER: {self.model_provider}. Must be 'gemini' or 'ollama'")
+        
         return True
 
 
 # Global configuration instance
 config = ResearchConfig()
+
+# Log configuration for debugging
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info(f"Configuration loaded - MAX_SEARCH_QUERIES: {config.max_search_queries}, "
+           f"MAX_SEARCH_RESULTS_PER_QUERY: {config.max_search_results_per_query}, "
+           f"MAX_REPORT_SECTIONS: {config.max_report_sections}")
 
