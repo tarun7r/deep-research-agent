@@ -8,7 +8,7 @@ A production-ready multi-agent autonomous research system built with LangGraph a
 
 ## Demo
 
-https://github.com/tarun7r/deep-research-agent/assets/demo.mp4
+https://github.com/tarun7r/deep-research-agent/tree/main/assets/demo.mp4
 
 *Watch the full demo video to see the Deep Research Agent in action, showcasing the multi-agent workflow, real-time progress updates, and comprehensive report generation.*
 
