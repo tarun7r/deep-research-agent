@@ -13,14 +13,50 @@ class CredibilityScorer:
     
     # Trusted domains
     TRUSTED_DOMAINS = {
-        # Academic in india
-        '.edu', '.ac.in', '.edu.in',
-        # Government
-        '.gov', '.gov.in',
-        # Reputable news in india
-        'indiatimes.com', 'indianexpress.com', 'thehindu.com', 'timesofindia.com', 'economictimes.com', 'financialexpress.com', 'livemint.com', 'business-standard.com', 'moneycontrol.com', 'businessline.in', 'businesstoday.in', 'businessinsider.in', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com', 'businessinsider.com',
-        'bbc.com', 'reuters.com', 'ap.org', 'npr.org'
-    
+        # Academic institutions (global)
+        '.edu', '.ac.uk', '.ac.in', '.edu.in', '.edu.au', '.ac.jp',
+        
+        # Government (global)
+        '.gov', '.gov.uk', '.gov.au', '.gov.ca', '.gov.in', '.europa.eu',
+        
+        # International news organizations
+        'bbc.com', 'bbc.co.uk', 'reuters.com', 'ap.org', 'npr.org',
+        'theguardian.com', 'nytimes.com', 'washingtonpost.com', 'wsj.com',
+        'ft.com', 'economist.com', 'bloomberg.com', 'cnbc.com',
+        'cnn.com', 'aljazeera.com', 'france24.com', 'dw.com',
+        
+        # Indian news organizations
+        'thehindu.com', 'indianexpress.com', 'timesofindia.com', 'indiatimes.com',
+        'economictimes.com', 'financialexpress.com', 'livemint.com',
+        'business-standard.com', 'moneycontrol.com', 'businessline.in',
+        'businesstoday.in', 'businessinsider.in',
+        
+        # Academic & Research platforms
+        'arxiv.org', 'scholar.google.com', 'researchgate.net', 'semanticscholar.org',
+        'pubmed.ncbi.nlm.nih.gov', 'ncbi.nlm.nih.gov', 'nih.gov', 'nature.com',
+        'sciencedirect.com', 'springer.com', 'wiley.com', 'ieee.org',
+        'jstor.org', 'plos.org', 'sciencemag.org', 'cell.com',
+        
+        # Medical & Health organizations
+        'who.int', 'cdc.gov', 'mayoclinic.org', 'nih.gov', 'webmd.com',
+        
+        # International organizations
+        'un.org', 'worldbank.org', 'imf.org', 'wto.org', 'oecd.org',
+        
+        # Tech & Science publications
+        'nature.com', 'scientificamerican.com', 'newscientist.com',
+        'technologyreview.com', 'spectrum.ieee.org', 'arstechnica.com',
+        'wired.com', 'techcrunch.com', 'theverge.com',
+        
+        # Wikipedia & educational resources
+        'wikipedia.org', 'britannica.com', 'khanacademy.org',
+        
+        # Legal & policy
+        'supremecourt.gov', 'congress.gov', 'loc.gov',
+        
+        # Statistics & data
+        'census.gov', 'bls.gov', 'data.gov', 'worldbank.org',
+        'statista.com', 'pewresearch.org', 'gallup.com'
     }
     
     # Suspicious patterns

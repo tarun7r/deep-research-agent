@@ -825,13 +825,28 @@ Please write this section in markdown format. Use inline citations [1], [2], etc
         report_parts.append("\n---\n")
         
         # Add all sections
+        has_references_section = False
         for section in report_sections:
-            report_parts.append(f"\n## {section.title}\n\n")
-            report_parts.append(section.content)
-            report_parts.append("\n")
+            # Check if content already starts with the title as a heading
+            content = section.content.strip()
+            
+            # Check if this section contains References
+            if "## References" in content or section.title.lower() == "references":
+                has_references_section = True
+            
+            if content.startswith(f"## {section.title}"):
+                # Content already has heading, use as-is
+                report_parts.append(f"\n{content}\n\n")
+            else:
+                # Add heading before content
+                report_parts.append(f"\n## {section.title}\n\n")
+                report_parts.append(content)
+                report_parts.append("\n")
         
-        # Add references from search results
-        report_parts.append("\n---\n\n## References\n\n")
+        # Only add references if not already present in sections
+        if not has_references_section:
+            # Add references from search results
+            report_parts.append("\n---\n\n## References\n\n")
         
         # Build a list of (url, title) tuples from search results
         source_info = []
@@ -851,15 +866,17 @@ Please write this section in markdown format. Use inline citations [1], [2], etc
                         seen_urls.add(url)
                         source_info.append((url, ''))
         
-        if source_info:
-            from src.utils.citations import CitationFormatter
-            formatter = CitationFormatter()
-            for i, (url, title) in enumerate(source_info[:30], 1):  # Top 30 sources
-                # Format citation in APA style
-                citation = formatter.format_apa(url, title)
-                report_parts.append(f"{i}. {citation}\n")
-        else:
-            report_parts.append("*No sources were available for this research.*\n")
+        # Add formatted references (only once, outside the loop)
+        if not has_references_section:
+            if source_info:
+                from src.utils.citations import CitationFormatter
+                formatter = CitationFormatter()
+                for i, (url, title) in enumerate(source_info[:30], 1):  # Top 30 sources
+                    # Format citation in APA style
+                    citation = formatter.format_apa(url, title)
+                    report_parts.append(f"{i}. {citation}\n")
+            else:
+                report_parts.append("*No sources were available for this research.*\n")
         
         return "".join(report_parts)
 
