@@ -6,6 +6,7 @@ import logging
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain.agents import create_agent
@@ -30,7 +31,7 @@ def get_llm(temperature: float = 0.7, model_override: str = None):
         model_override: Optional model name to override config.model_name
         
     Returns:
-        LLM instance (ChatOllama or ChatGoogleGenerativeAI)
+        LLM instance (ChatOllama, ChatGoogleGenerativeAI, or ChatOpenAI)
     """
     model_name = model_override or config.model_name
     
@@ -41,6 +42,13 @@ def get_llm(temperature: float = 0.7, model_override: str = None):
             base_url=config.ollama_base_url,
             temperature=temperature,
             num_ctx=8192,  # Context window
+        )
+    elif config.model_provider == "openai":
+        logger.info(f"Using OpenAI model: {model_name}")
+        return ChatOpenAI(
+            model=model_name,
+            api_key=config.openai_api_key,
+            temperature=temperature
         )
     else:  # gemini
         logger.info(f"Using Gemini model: {model_name}")

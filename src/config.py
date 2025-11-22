@@ -17,13 +17,18 @@ class ResearchConfig(BaseModel):
     # Model Provider Configuration
     model_provider: str = Field(
         default=os.getenv("MODEL_PROVIDER", "gemini"),
-        description="Model provider: 'gemini' or 'ollama'"
+        description="Model provider: 'gemini', 'ollama', or 'openai'"
     )
     
-    # API Keys (only required for Gemini)
+    # API Keys
     google_api_key: str = Field(
         default_factory=lambda: os.getenv("GEMINI_API_KEY", ""),
         description="Google/Gemini API key (required if using Gemini)"
+    )
+    
+    openai_api_key: str = Field(
+        default_factory=lambda: os.getenv("OPENAI_API_KEY", ""),
+        description="OpenAI API key (required if using OpenAI)"
     )
     
     # Ollama Configuration
@@ -109,8 +114,13 @@ class ResearchConfig(BaseModel):
                     raise ValueError(f"Ollama server not accessible at {self.ollama_base_url}")
             except requests.exceptions.RequestException as e:
                 raise ValueError(f"Cannot connect to Ollama server at {self.ollama_base_url}: {e}")
+        elif self.model_provider == "openai":
+            if not self.openai_api_key:
+                raise ValueError(
+                    "OPENAI_API_KEY is required when using OpenAI. Get one from https://platform.openai.com/api-keys"
+                )
         else:
-            raise ValueError(f"Invalid MODEL_PROVIDER: {self.model_provider}. Must be 'gemini' or 'ollama'")
+            raise ValueError(f"Invalid MODEL_PROVIDER: {self.model_provider}. Must be 'gemini', 'ollama', or 'openai'")
         
         return True
 

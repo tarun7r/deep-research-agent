@@ -85,7 +85,7 @@ ResearchPlanner → ResearchSearcher → ResearchSynthesizer → ReportWriter
 
 - Python 3.11+
 - pip or uv package manager
-- [Ollama](https://ollama.com/) (for local models) **OR** Google Gemini API key ([Get one free](https://makersuite.google.com/app/apikey))
+- [Ollama](https://ollama.com/) (for local models) **OR** Google Gemini API key ([Get one free](https://makersuite.google.com/app/apikey)) **OR** OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
 
 ### Setup
 
@@ -104,6 +104,7 @@ pip install -r requirements.txt
 # Configure (choose one):
 # Option A - Ollama: Install Ollama, pull a model (e.g., ollama pull qwen2.5:7b)
 # Option B - Gemini: Get API key from https://makersuite.google.com/app/apikey
+# Option C - OpenAI: Get API key from https://platform.openai.com/api-keys
 
 # Create .env file (see Configuration section below)
 ```
@@ -203,7 +204,7 @@ Environment variables in `.env`:
 
 ```bash
 # Model Provider (choose one)
-MODEL_PROVIDER=ollama                # Options: ollama, gemini
+MODEL_PROVIDER=ollama                # Options: ollama, gemini, openai
 
 # For Ollama
 MODEL_NAME=qwen2.5:7b                # Recommended: qwen2.5:7b, llama3.1:8b, mistral:7b
@@ -216,6 +217,12 @@ OLLAMA_BASE_URL=http://localhost:11434
 # MODEL_NAME=gemini-2.5-flash
 # SUMMARIZATION_MODEL=gemini-2.5-flash
 
+# For OpenAI (alternative)
+# MODEL_PROVIDER=openai
+# OPENAI_API_KEY=your_api_key_here
+# MODEL_NAME=gpt-4o-mini              # Recommended: gpt-4o-mini, gpt-4o, gpt-4-turbo
+# SUMMARIZATION_MODEL=gpt-4o-mini
+
 # Optional - Search Settings
 MAX_SEARCH_QUERIES=3
 MAX_SEARCH_RESULTS_PER_QUERY=3
@@ -226,7 +233,7 @@ MAX_REPORT_SECTIONS=8
 CITATION_STYLE=apa                   # Options: apa, mla, chicago, ieee
 ```
 
-### Ollama vs Gemini
+### Model Provider Comparison
 
 **Ollama (Local Models):**
 - Free, no API costs
@@ -242,6 +249,14 @@ CITATION_STYLE=apa                   # Options: apa, mla, chicago, ieee
 - Consistently fast across devices
 - Requires API key and internet
 - API costs (free tier available)
+
+**OpenAI (Cloud API):**
+- No local resources needed
+- Industry-leading models (GPT-4, GPT-4o)
+- Excellent performance and reliability
+- Requires API key and internet
+- Pay-per-use pricing (competitive rates)
+- Recommended models: `gpt-4o-mini` (cost-effective), `gpt-4o` (best quality)
 
 ## Output Format
 
