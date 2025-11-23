@@ -17,7 +17,7 @@ class ResearchConfig(BaseModel):
     # Model Provider Configuration
     model_provider: str = Field(
         default=os.getenv("MODEL_PROVIDER", "gemini"),
-        description="Model provider: 'gemini', 'ollama', or 'openai'"
+        description="Model provider: 'gemini', 'ollama', 'openai', or 'llamacpp'"
     )
     
     # API Keys
@@ -35,6 +35,12 @@ class ResearchConfig(BaseModel):
     ollama_base_url: str = Field(
         default=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         description="Ollama server URL"
+    )
+    
+    # llama.cpp Server Configuration
+    llamacpp_base_url: str = Field(
+        default=os.getenv("LLAMACPP_BASE_URL", "http://localhost:8080"),
+        description="llama.cpp server URL (OpenAI-compatible API)"
     )
     
     # Model Configuration
@@ -119,8 +125,17 @@ class ResearchConfig(BaseModel):
                 raise ValueError(
                     "OPENAI_API_KEY is required when using OpenAI. Get one from https://platform.openai.com/api-keys"
                 )
+        elif self.model_provider == "llamacpp":
+            # Validate llama.cpp server is accessible
+            try:
+                import requests
+                response = requests.get(f"{self.llamacpp_base_url}/health", timeout=5)
+                if response.status_code not in [200, 404]:  # 404 is ok, means server is running but no health endpoint
+                    raise ValueError(f"llama.cpp server not accessible at {self.llamacpp_base_url}")
+            except requests.exceptions.RequestException as e:
+                raise ValueError(f"Cannot connect to llama.cpp server at {self.llamacpp_base_url}: {e}")
         else:
-            raise ValueError(f"Invalid MODEL_PROVIDER: {self.model_provider}. Must be 'gemini', 'ollama', or 'openai'")
+            raise ValueError(f"Invalid MODEL_PROVIDER: {self.model_provider}. Must be 'gemini', 'ollama', 'openai', or 'llamacpp'")
         
         return True
 

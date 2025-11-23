@@ -50,6 +50,15 @@ def get_llm(temperature: float = 0.7, model_override: str = None):
             api_key=config.openai_api_key,
             temperature=temperature
         )
+    elif config.model_provider == "llamacpp":
+        logger.info(f"Using llama.cpp server model: {model_name}")
+        # llama.cpp server exposes OpenAI-compatible API
+        return ChatOpenAI(
+            model=model_name,
+            base_url=f"{config.llamacpp_base_url}/v1",  # OpenAI-compatible endpoint
+            api_key="not-needed",  # llama.cpp doesn't require API key
+            temperature=temperature
+        )
     else:  # gemini
         logger.info(f"Using Gemini model: {model_name}")
         return ChatGoogleGenerativeAI(

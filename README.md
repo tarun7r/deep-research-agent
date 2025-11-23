@@ -6,7 +6,7 @@
 
 A production-ready multi-agent autonomous research system built with LangGraph and LangChain. Four specialized agents work together to conduct comprehensive research on any topic and generate detailed, citation-backed reports with credibility scoring and quality metrics. Supports both local models (Ollama) and cloud APIs (Gemini).
 
-**Actively seeking opportunities as an ML Engineer II / Data Scientist II**
+**Actively seeking opportunities as an ML Engineer II / Data Scientist II / AI Engineer II**
 
 ## Demo
 https://github.com/user-attachments/assets/df8404c6-7423-4a49-864a-bd4d59885c1b
@@ -60,7 +60,7 @@ ResearchPlanner → ResearchSearcher → ResearchSynthesizer → ReportWriter
 **ResearchSynthesizer**
 - Analyzes aggregated search results with credibility awareness
 - Prioritizes HIGH-credibility sources (score ≥70) in findings
-  - Resolves contradictions using credibility hierarchy
+- Resolves contradictions using credibility hierarchy
 - Extracts key insights and identifies patterns
 - Progressive truncation handles token limit errors gracefully
 
@@ -128,14 +128,6 @@ ollama pull qwen2.5:7b
 ollama run qwen2.5:7b "Hello, test message"
 ```
 
-**Recommended Models for M1 Pro (16GB RAM):**
-
-| Model | Command | RAM | Best For |
-|-------|---------|-----|----------|
-| **Qwen2.5 7B** | `ollama pull qwen2.5:7b` | ~5-6GB | Research, reasoning, complex analysis (recommended) |
-| **Llama 3.1 8B** | `ollama pull llama3.1:8b` | ~6-7GB | Balanced performance, fast |
-| **Mistral 7B** | `ollama pull mistral:7b` | ~5GB | Fastest option, good quality |
-
 **Configuration:**
 
 Create a `.env` file:
@@ -146,6 +138,54 @@ SUMMARIZATION_MODEL=qwen2.5:7b
 ```
 
 > **Tip**: Ollama runs a local server at `http://localhost:11434` by default. The agent will automatically connect to it.
+
+### Using llama.cpp
+
+llama.cpp provides direct control over model execution with maximum performance on Mac M1/M2/M3 with Metal acceleration.
+
+**Quick Start:**
+
+```bash
+
+# 1. Download a GGUF model (e.g., Qwen2.5:7B q4_k_m quantization)
+cd ../..
+mkdir models
+# Download from Hugging Face
+huggingface-cli download Qwen/Qwen2.5-7B-Instruct-GGUF qwen2.5-7b-instruct-q4_k_m.gguf --local-dir ./models
+
+# 2. Start llama.cpp server with tool calling support
+cd llama.cpp/build/bin
+./llama-server -m ~/models/qwen2.5-7b-instruct-q4_k_m.gguf \
+  --host 0.0.0.0 \
+  --port 8080 \
+  -ngl 35 \
+  --ctx-size 4096 \
+  --jinja
+```
+
+**Configuration:**
+
+Create a `.env` file:
+```bash
+MODEL_PROVIDER=llamacpp
+MODEL_NAME=qwen2.5-7b-instruct-q4_k_m  # Model name (can be anything)
+SUMMARIZATION_MODEL=qwen2.5-7b-instruct-q4_k_m
+LLAMACPP_BASE_URL=http://localhost:8080
+```
+
+**Important Flags:**
+- `--jinja` - Required for tool/function calling support (used by research agents)
+- `-ngl 35` - Offload 35 layers to GPU (Metal acceleration)
+- `--ctx-size 4096` - Context window size
+- `--host 0.0.0.0` - Allow connections from any IP
+- `--port 8080` - Server port
+
+**Performance Tips:**
+- Metal acceleration provides ~2-3x speedup on M1/M2/M3
+- The server exposes an OpenAI-compatible API at `/v1/chat/completions`
+- Use `--n-gpu-layers` (or `-ngl`) to maximize GPU usage
+
+> **Note**: llama.cpp offers more control and can be faster than Ollama, but requires manual setup. Choose Ollama for simplicity or llama.cpp for maximum performance.
 
 ## Usage
 
@@ -204,12 +244,18 @@ Environment variables in `.env`:
 
 ```bash
 # Model Provider (choose one)
-MODEL_PROVIDER=ollama                # Options: ollama, gemini, openai
+MODEL_PROVIDER=ollama                # Options: ollama, llamacpp, gemini, openai
 
 # For Ollama
 MODEL_NAME=qwen2.5:7b                # Recommended: qwen2.5:7b, llama3.1:8b, mistral:7b
 SUMMARIZATION_MODEL=qwen2.5:7b
 OLLAMA_BASE_URL=http://localhost:11434
+
+# For llama.cpp (alternative - requires --jinja flag on server)
+# MODEL_PROVIDER=llamacpp
+# MODEL_NAME=qwen2.5-7b-instruct-q4_k_m
+# SUMMARIZATION_MODEL=qwen2.5-7b-instruct-q4_k_m
+# LLAMACPP_BASE_URL=http://localhost:8080
 
 # For Gemini (alternative)
 # MODEL_PROVIDER=gemini
@@ -240,8 +286,20 @@ CITATION_STYLE=apa                   # Options: apa, mla, chicago, ieee
 - Works offline, privacy-focused
 - Faster response times (no network latency)
 - No rate limits
+- Easy setup and model management
 - Requires ~5-8GB RAM for good models
 - Initial model download (~4-5GB per model)
+
+**llama.cpp (Local Models):**
+- Free, no API costs
+- Works offline, maximum privacy
+- Fastest local inference with Metal acceleration
+- No rate limits
+- Fine-grained control over model parameters
+- Lower memory usage with quantization
+- Requires manual setup and compilation
+- Requires ~4-8GB RAM depending on quantization
+- Best for: Maximum performance on M1/M2/M3 Macs
 
 **Gemini (Cloud API):**
 - No local resources needed
@@ -368,4 +426,4 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-Built with [LangGraph](https://github.com/langchain-ai/langgraph) and [LangChain](https://github.com/langchain-ai/langchain). Supports [Ollama](https://ollama.com/) local models and [Google Gemini](https://ai.google.dev/) API. Web search via [DuckDuckGo](https://duckduckgo.com/).
+Built with [LangGraph](https://github.com/langchain-ai/langgraph) and [LangChain](https://github.com/langchain-ai/langchain). Supports [Ollama](https://ollama.com/) and [llama.cpp](https://github.com/ggerganov/llama.cpp) for local models, [Google Gemini](https://ai.google.dev/) and [OpenAI](https://openai.com/) APIs. Web search via [DuckDuckGo](https://duckduckgo.com/).
