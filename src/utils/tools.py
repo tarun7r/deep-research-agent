@@ -22,35 +22,68 @@ _citation_formatter = CitationFormatter()
 
 @tool
 async def web_search(query: str, max_results: int = None) -> List[dict]:
-    """Search the web for information using DuckDuckGo search engine.
+    """Search the web for authoritative information using DuckDuckGo search engine.
     
-    This tool allows you to search the internet for current information, articles, 
-    research papers, news, and any publicly available content. Use this when you need 
-    to gather information, verify facts, find sources, or research any topic.
+    This tool executes web searches to find current, accurate information from diverse sources
+    including academic papers, official documentation, news articles, and expert analyses.
     
-    Best practices:
-    - Use specific, targeted queries for better results
-    - Include key terms and relevant keywords
-    - For academic topics, include terms like "research", "study", or "paper"
-    - For news, include year or recent timeframes
-    - Avoid overly broad queries - be specific
+    ## When to Use
+    - Gathering factual information on any topic
+    - Finding authoritative sources (academic, government, official docs)
+    - Researching current events or recent developments
+    - Verifying claims or finding supporting evidence
+    - Discovering expert opinions and analyses
+    
+    ## Query Optimization Strategies
+    
+    ### For Maximum Accuracy:
+    - Add "official" or "documentation" for technical topics
+    - Include "research" or "study" for scientific topics
+    - Add year (e.g., "2024") for time-sensitive information
+    - Use site-specific queries: "site:edu" or "site:gov" for authoritative sources
+    
+    ### Query Formulation Best Practices:
+    - Be specific: "Python async await tutorial" > "Python programming"
+    - Use technical terms: "WebSocket protocol implementation" > "real-time web"
+    - Include context: "Azure Speech SDK streaming architecture" > "Azure speech"
+    - Combine concepts: "machine learning healthcare diagnosis 2024"
+    
+    ### Query Types for Comprehensive Research:
+    - Definitional: "what is [topic]", "[topic] explained"
+    - Technical: "[topic] architecture", "how [topic] works"
+    - Comparative: "[topic] vs [alternative]", "[topic] comparison"
+    - Practical: "[topic] best practices", "[topic] tutorial"
+    - Current: "[topic] 2024", "latest [topic]"
     
     Args:
-        query: The search query string. Should be clear and specific.
-               Examples: "climate change effects 2024", "machine learning best practices",
-               "renewable energy trends research"
-        max_results: Maximum number of search results to return (default: from config, max: 10)
+        query: A well-crafted search query string. Be specific and include relevant
+               qualifiers. Maximum ~10 words for best results.
+               
+               Good examples:
+               - "WebSocket vs HTTP streaming performance comparison"
+               - "Azure cognitive services speech SDK documentation"
+               - "transformer architecture deep learning explained 2024"
+               - "site:arxiv.org large language models efficiency"
+               
+               Avoid:
+               - Single words: "AI", "cloud", "programming"
+               - Overly long queries (>15 words)
+               - Ambiguous terms without context
+               
+        max_results: Maximum results to return (default: from config). Higher values
+                     give more sources but may include less relevant results.
         
     Returns:
         List of dictionaries, each containing:
-        - query (str): The original search query used
-        - title (str): Title of the web page or article
-        - url (str): Full URL to the source
-        - snippet (str): Preview text/summary from the page (100-200 chars)
+        - query (str): The search query used
+        - title (str): Page title (indicates content focus)
+        - url (str): Full URL (check domain for credibility)
+        - snippet (str): Preview text (~150 chars, helps assess relevance)
         
-    Example:
-        results = await web_search("artificial intelligence applications healthcare")
-        # Returns list of relevant articles about AI in healthcare
+    Tips:
+        - Check URL domains: .edu, .gov, .org often indicate credibility
+        - Review snippets before extracting full content
+        - If results are poor, try rephrasing with different terms
     """
     try:
         # Use config value if not specified
@@ -80,37 +113,86 @@ async def web_search(query: str, max_results: int = None) -> List[dict]:
 
 @tool
 async def extract_webpage_content(url: str) -> Optional[str]:
-    """Extract and retrieve the main text content from any webpage.
+    """Extract the main textual content from a webpage, removing boilerplate and noise.
     
-    This tool fetches a webpage and intelligently extracts the main article or content,
-    automatically removing navigation menus, advertisements, sidebars, headers, footers,
-    and other non-essential elements. Use this when you need to read the full content
-    of an article, blog post, research paper, or documentation page that you found
-    through web search.
+    This tool fetches a webpage and uses intelligent content extraction to isolate the
+    main article body, removing navigation, ads, sidebars, footers, and other non-content
+    elements. Essential for getting the full context beyond search snippets.
     
-    Best practices:
-    - Use this after finding interesting URLs through web_search
-    - Good for articles, blog posts, documentation, research papers
-    - Works best with content-rich pages (not good for video sites, social media)
-    - Returns None if the page cannot be accessed or parsed
+    ## When to Use
+    - After web_search identifies promising sources
+    - To get full article text beyond the snippet preview
+    - For in-depth analysis of specific sources
+    - When you need to verify claims with full context
+    - To extract technical details, examples, or data tables
+    
+    ## Source Prioritization Guide
+    
+    ### Extract First (High Value):
+    - Official documentation pages (docs.*, developer.*)
+    - Academic papers and research (arxiv.org, ieee.org, nature.com)
+    - Government and institutional reports (.gov, .edu)
+    - Detailed technical blog posts with code/examples
+    - Industry whitepapers and case studies
+    
+    ### Extract If Needed (Medium Value):
+    - News articles from reputable sources
+    - Well-written tutorial and how-to guides
+    - Expert commentary and analysis pieces
+    - Wikipedia articles (good overviews)
+    
+    ### Usually Skip (Low Value):
+    - Social media pages (limited extraction success)
+    - Video-primary sites (YouTube, Vimeo) - no transcript extraction
+    - Login-protected content
+    - Heavily JavaScript-rendered single-page apps
+    - Image galleries or portfolio sites
+    
+    ## What Gets Extracted
+    - Main article/post body text
+    - Headings and subheadings
+    - Lists and bullet points
+    - Code blocks and technical content
+    - Tables (as text)
+    
+    ## What Gets Removed
+    - Navigation menus and headers
+    - Sidebar content and widgets
+    - Footer links and copyright notices
+    - Advertisements and promotions
+    - Comment sections
+    - Related article suggestions
     
     Args:
-        url: The complete URL of the webpage to extract content from.
-             Must be a valid HTTP/HTTPS URL.
-             Examples: "https://example.com/article", "https://blog.site.com/post-title"
+        url: Complete, valid HTTP/HTTPS URL to extract content from.
+             Must be publicly accessible (no auth required).
+             
+             Good candidates:
+             - "https://docs.microsoft.com/azure/cognitive-services/speech"
+             - "https://arxiv.org/abs/2301.xxxxx"
+             - "https://www.nature.com/articles/article-id"
+             - "https://techblog.example.com/detailed-guide"
+             
+             Poor candidates:
+             - "https://twitter.com/..." (social media)
+             - "https://youtube.com/..." (video content)
+             - URLs requiring login
         
     Returns:
-        str or None: Extracted main text content from the page (truncated to 5000 characters
-        for efficiency). Returns None if the page cannot be accessed, requires authentication,
-        or if extraction fails.
-        
-    Example:
-        content = await extract_webpage_content("https://example.com/ai-research-2024")
-        if content:
-            # Process the extracted article content
-            print(f"Extracted {len(content)} characters")
-        else:
-            print("Failed to extract content from URL")
+        str: Extracted main text content (up to 5000 characters for efficiency).
+             Content is cleaned and formatted with preserved paragraph breaks.
+             
+        None: If extraction fails due to:
+             - Network/access errors (timeouts, 403/404)
+             - Login/authentication requirements
+             - JavaScript-heavy pages with no static content
+             - Non-text content (PDFs, images, videos)
+             
+    Usage Pattern:
+        1. Run web_search to find relevant URLs
+        2. Review titles and domains for credibility
+        3. Extract content from top 3-5 most promising sources
+        4. Cross-reference extracted content for verification
     """
     try:
         content = await _extractor_impl.extract_content_async(url)
@@ -122,25 +204,70 @@ async def extract_webpage_content(url: str) -> Optional[str]:
 
 @tool
 def analyze_research_topic(topic: str) -> Dict[str, List[str]]:
-    """Analyze a research topic to identify key aspects and dimensions to explore.
+    """Decompose a research topic into structured dimensions for comprehensive coverage.
     
-    This tool helps break down complex research topics into manageable components,
-    identifying different aspects, perspectives, and angles that should be covered.
+    This tool performs preliminary topic analysis to identify the key aspects,
+    stakeholder perspectives, and essential questions that should be addressed
+    in a thorough research investigation.
+    
+    ## Purpose
+    Ensures research planning covers all important dimensions of a topic rather
+    than focusing too narrowly on one aspect.
+    
+    ## Analysis Framework
+    
+    ### Aspects (What to cover)
+    The fundamental dimensions or components of the topic:
+    - Technical/Functional aspects (how it works)
+    - Historical context (evolution, origins)
+    - Current state (adoption, implementations)
+    - Future outlook (trends, predictions)
+    - Practical implications (real-world impact)
+    
+    ### Perspectives (Whose viewpoint)
+    Different stakeholder or analytical lenses:
+    - Technical perspective (engineers, developers)
+    - Business perspective (costs, ROI, strategy)
+    - User perspective (experience, benefits)
+    - Ethical perspective (risks, implications)
+    - Policy perspective (regulations, standards)
+    
+    ### Questions (What to answer)
+    Core questions that comprehensive research should address:
+    - Definitional: What is it?
+    - Mechanistic: How does it work?
+    - Evaluative: What are the pros/cons?
+    - Comparative: How does it compare to alternatives?
+    - Prospective: What's the future outlook?
+    
+    ## When to Use
+    - At the start of research planning
+    - When unsure how to structure research approach
+    - To ensure comprehensive topic coverage
+    - To generate diverse search query ideas
     
     Args:
-        topic: The research topic to analyze
-        
+        topic: The research topic or question to analyze.
+               Can be a simple topic ("machine learning")
+               or a complex question ("How does Azure Speech SDK streaming work?")
+               
     Returns:
-        Dictionary with:
-        - aspects: Key aspects/dimensions of the topic
-        - perspectives: Different viewpoints to consider
-        - questions: Important questions to answer
+        Dictionary containing:
         
-    Example:
-        result = analyze_research_topic("AI in healthcare")
-        # Returns: {"aspects": ["applications", "benefits", "challenges"],
-        #           "perspectives": ["patients", "doctors", "policy"],
-        #           "questions": ["How effective?", "What risks?"]}
+        - aspects (List[str]): Key dimensions to investigate
+          Typically 3-5 core aspects of the topic
+          
+        - perspectives (List[str]): Stakeholder/analytical viewpoints
+          Different angles from which to examine the topic
+          
+        - questions (List[str]): Essential questions to answer
+          Core questions that research should address
+          
+    Usage:
+        Use the returned analysis to:
+        1. Generate diverse search queries covering all aspects
+        2. Structure report outline to address all perspectives  
+        3. Verify final report answers all essential questions
     """
     # This is a structured thinking tool for the planning agent
     # Returns structured breakdown to help with planning
@@ -182,21 +309,67 @@ def analyze_research_topic(topic: str) -> Dict[str, List[str]]:
 
 @tool
 def extract_insights_from_text(text: str, focus: str = "key findings") -> List[str]:
-    """Extract key insights from a text based on a specific focus.
+    """Extract specific, targeted insights from text content based on a defined focus area.
     
-    This tool helps synthesize information by extracting relevant insights,
-    findings, or patterns from text content.
+    This tool performs focused extraction of relevant information from raw text,
+    helping to isolate specific types of insights like findings, trends, challenges,
+    benefits, technical details, or statistics.
+    
+    ## When to Use
+    - Extracting specific categories of information from article content
+    - Isolating technical details or specifications
+    - Finding statistics, numbers, or quantitative data
+    - Identifying challenges, limitations, or criticisms
+    - Pulling out benefits, advantages, or positive outcomes
+    - Discovering trends, patterns, or predictions
+    
+    ## Effective Focus Parameters
+    
+    ### For Technical Research:
+    - "technical specifications" - Extract specs, requirements, parameters
+    - "implementation details" - How it works, architecture, components
+    - "performance metrics" - Speed, accuracy, benchmarks, comparisons
+    - "limitations" - Constraints, edge cases, known issues
+    
+    ### For Analysis:
+    - "key findings" - Main conclusions and discoveries (default)
+    - "trends" - Patterns, trajectories, emerging developments
+    - "challenges" - Problems, obstacles, difficulties
+    - "benefits" - Advantages, positive outcomes, value propositions
+    - "comparisons" - How things differ, trade-offs, alternatives
+    
+    ### For Practical Use:
+    - "best practices" - Recommended approaches, guidelines
+    - "use cases" - Applications, examples, scenarios
+    - "requirements" - Prerequisites, dependencies, conditions
+    - "steps" - Procedures, processes, workflows
     
     Args:
-        text: The text to analyze (e.g., search results, article content)
-        focus: What to focus on (e.g., "key findings", "trends", "challenges")
+        text: The text content to analyze. Can be:
+              - Extracted webpage content
+              - Search result snippets
+              - Combined content from multiple sources
+              Longer texts (>1000 chars) yield better results.
+              
+        focus: The type of insight to extract. Be specific for better results.
+               Default: "key findings"
+               
+               Examples:
+               - "technical architecture"
+               - "performance benchmarks"
+               - "security considerations"
+               - "cost implications"
+               - "user benefits"
         
     Returns:
-        List of extracted insights
-        
-    Example:
-        insights = extract_insights_from_text(article_text, "key benefits")
-        # Returns: ["Benefit 1...", "Benefit 2..."]
+        List[str]: Extracted insights matching the focus area.
+                   Each insight is a complete, standalone statement.
+                   Returns ["No specific insights found..."] if none match.
+                   
+    Tips:
+        - Use specific focus terms for targeted extraction
+        - Combine with multiple focus areas for comprehensive analysis
+        - Review extracted insights for accuracy before including in reports
     """
     logger.info(f"Extracting insights with focus: {focus}")
     
@@ -217,25 +390,59 @@ def extract_insights_from_text(text: str, focus: str = "key findings") -> List[s
 
 @tool
 def format_citation(url: str, title: str = "", style: str = "apa") -> str:
-    """Format a citation in a specific academic style.
+    """Format a source citation in a standardized academic style.
     
-    This tool formats citations for academic writing in various styles
-    including APA, MLA, Chicago, and IEEE.
+    This tool generates properly formatted citations for the References section
+    of research reports. Supports major academic citation styles used in
+    scholarly writing.
+    
+    ## Supported Citation Styles
+    
+    ### APA (American Psychological Association) - Default
+    - Common in: Social sciences, psychology, education, business
+    - Format: Author. (Year). Title. Retrieved from URL
+    - Example: Smith, J. (2024). Machine Learning Basics. Retrieved from https://...
+    
+    ### MLA (Modern Language Association)
+    - Common in: Humanities, literature, arts
+    - Format: Author. "Title." Date. Web. Access Date. <URL>
+    - Example: Smith, John. "Machine Learning Basics." Web. 15 Dec. 2024. <https://...>
+    
+    ### Chicago
+    - Common in: History, some humanities, publishing
+    - Format: Author. "Title." Accessed Date. URL.
+    - Example: Smith, John. "Machine Learning Basics." Accessed December 15, 2024. https://...
+    
+    ### IEEE (Institute of Electrical and Electronics Engineers)
+    - Common in: Engineering, computer science, technical fields
+    - Format: Author, "Title," URL, accessed Date.
+    - Example: J. Smith, "Machine Learning Basics," https://..., accessed December 15, 2024.
+    
+    ## When to Use
+    - Building the References section of a report
+    - Need consistent citation formatting
+    - Converting URL + title into proper academic format
     
     Args:
-        url: The URL of the source
-        title: The title of the source (optional)
-        style: Citation style ("apa", "mla", "chicago", "ieee")
+        url: Complete URL of the source (required)
+             Must be a valid HTTP/HTTPS URL
+             
+        title: Title of the article/page (recommended)
+               Improves citation quality significantly
+               If empty, citation will be URL-only
+               
+        style: Citation format to use (case-insensitive)
+               Options: "apa" (default), "mla", "chicago", "ieee"
+               Use the style appropriate for your field/audience
         
     Returns:
-        Formatted citation string
-        
-    Example:
-        citation = format_citation(
-            "https://example.com/article",
-            "AI in Healthcare",
-            "apa"
-        )
+        str: Formatted citation string ready for inclusion in References
+             Includes current date as access date where required by style
+             
+    Tips:
+        - Always provide title when available for better citations
+        - Use consistent style throughout a single report
+        - APA is a safe default for most research contexts
     """
     logger.info(f"Formatting citation in {style} style")
     
@@ -262,27 +469,81 @@ def format_citation(url: str, title: str = "", style: str = "apa") -> str:
 
 @tool
 def validate_section_quality(section_text: str, min_words: int = 150) -> Dict[str, any]:
-    """Validate the quality of a report section.
+    """Validate a report section against quality standards before finalizing.
     
-    This tool checks if a section meets quality standards including length,
-    citation presence, and structure.
+    This tool performs comprehensive quality checks on written sections to ensure
+    they meet minimum standards for length, citation usage, structure, and
+    overall readability. Use BEFORE submitting final section content.
+    
+    ## Quality Dimensions Checked
+    
+    ### 1. Length Requirements
+    - Minimum word count enforcement
+    - Flags sections that are too short for meaningful coverage
+    
+    ### 2. Citation Analysis
+    - Presence of inline citations [1], [2], etc.
+    - Academic writing requires citations for factual claims
+    
+    ### 3. Structural Elements
+    - Use of markdown headings for organization
+    - Appropriate for sections over 300 words
+    
+    ## When to Use
+    - After drafting any report section
+    - Before returning final section content
+    - To identify areas needing improvement
+    - To ensure minimum quality thresholds are met
+    
+    ## Interpreting Results
+    
+    ### is_valid = True
+    - Section meets all minimum requirements
+    - Safe to include in final report
+    
+    ### is_valid = False
+    - One or more critical issues found
+    - Review 'issues' list for specific problems
+    - Follow 'suggestions' for improvements
+    - Revise section before submitting
     
     Args:
-        section_text: The section text to validate
-        min_words: Minimum word count required (default: 150)
+        section_text: The complete section content to validate.
+                      Should be the full markdown text you plan to submit.
+                      
+        min_words: Minimum acceptable word count. Default: 150
+                   For comprehensive sections, use 200-300
+                   For brief overviews, 100-150 may suffice
         
     Returns:
-        Dictionary with:
-        - is_valid: Boolean indicating if section meets quality standards
-        - word_count: Actual word count
-        - has_citations: Whether section includes citations
-        - issues: List of quality issues found
-        - suggestions: List of improvement suggestions
+        Dictionary containing:
         
-    Example:
-        quality = validate_section_quality(section_text, min_words=200)
-        if not quality["is_valid"]:
-            print(quality["issues"])
+        - is_valid (bool): True if ALL quality checks pass
+        
+        - word_count (int): Actual word count of the section
+          Compare against min_words to see the gap
+          
+        - has_citations (bool): True if [n] citation format detected
+          FALSE = Major issue for factual content
+          
+        - issues (List[str]): Specific problems found
+          Empty list = no issues
+          Examples:
+            - "Section too short: 89 words (minimum: 150)"
+            - "No citations found"
+          
+        - suggestions (List[str]): Actionable improvement recommendations
+          Examples:
+            - "Add more detail and supporting information"
+            - "Add inline citations [1], [2] to support claims"
+            - "Consider adding subheadings for better structure"
+            
+    Usage Pattern:
+        1. Write your section content
+        2. Call validate_section_quality(your_content, min_words=200)
+        3. If is_valid is False, revise based on issues/suggestions
+        4. Repeat until is_valid is True
+        5. Submit the validated section
     """
     logger.info("Validating section quality")
     

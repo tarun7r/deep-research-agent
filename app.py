@@ -1,4 +1,4 @@
-"""Interactive Chainlit interface for Deep Research Agent."""
+"""Interactive Chainlit interface for Deep Research Agent with real-time progress updates."""
 
 import asyncio
 import chainlit as cl
@@ -10,91 +10,208 @@ from src.state import ResearchState
 from src.graph import create_research_graph
 from src.utils.exports import ReportExporter
 from src.utils.history import ResearchHistory
+from src.callbacks import (
+    progress_callback, 
+    ProgressUpdate, 
+    ResearchStage,
+    emit_complete
+)
 
 
-async def run_research_with_updates(topic: str):
+# Stage markers for visual display
+STAGE_ICONS = {
+    ResearchStage.INITIALIZING: "[...]",
+    ResearchStage.PLANNING: "[1/5]",
+    ResearchStage.SEARCHING: "[2/5]",
+    ResearchStage.EXTRACTING: "[3/5]",
+    ResearchStage.SYNTHESIZING: "[4/5]",
+    ResearchStage.WRITING: "[5/5]",
+    ResearchStage.COMPLETE: "[OK]",
+    ResearchStage.ERROR: "[ERR]"
+}
+
+STAGE_NAMES = {
+    ResearchStage.INITIALIZING: "Initializing",
+    ResearchStage.PLANNING: "Planning Research",
+    ResearchStage.SEARCHING: "Searching Web",
+    ResearchStage.EXTRACTING: "Extracting Content",
+    ResearchStage.SYNTHESIZING: "Synthesizing Findings",
+    ResearchStage.WRITING: "Writing Report",
+    ResearchStage.COMPLETE: "Complete",
+    ResearchStage.ERROR: "Error"
+}
+
+
+class ProgressDisplay:
+    """Manages the progress display for a research session."""
+    
+    def __init__(self):
+        self.message: cl.Message = None
+        self.updates: list[ProgressUpdate] = []
+        self.current_stage: ResearchStage = ResearchStage.INITIALIZING
+        self.start_time: datetime = None
+        
+    async def initialize(self, topic: str):
+        """Initialize the progress display."""
+        self.start_time = datetime.now()
+        self.updates = []
+        self.current_stage = ResearchStage.INITIALIZING
+        
+        content = self._render_progress(topic)
+        self.message = cl.Message(content=content)
+        await self.message.send()
+    
+    async def update(self, progress_update: ProgressUpdate):
+        """Update the progress display with a new update."""
+        self.updates.append(progress_update)
+        self.current_stage = progress_update.stage
+        
+        if self.message:
+            self.message.content = self._render_progress()
+            await self.message.update()
+    
+    def _render_progress(self, topic: str = None) -> str:
+        """Render the progress display as markdown."""
+        # Calculate elapsed time
+        elapsed = ""
+        if self.start_time:
+            delta = datetime.now() - self.start_time
+            elapsed = f" ({delta.seconds}s)"
+        
+        # Build progress bar
+        stages_order = [
+            ResearchStage.PLANNING,
+            ResearchStage.SEARCHING,
+            ResearchStage.EXTRACTING,
+            ResearchStage.SYNTHESIZING,
+            ResearchStage.WRITING,
+            ResearchStage.COMPLETE
+        ]
+        
+        # Get current progress percentage
+        current_pct = 0
+        if self.updates:
+            for update in reversed(self.updates):
+                if update.progress_pct is not None:
+                    current_pct = update.progress_pct
+                    break
+        
+        # Build visual progress bar
+        bar_length = 20
+        filled = int(bar_length * current_pct / 100)
+        bar = "#" * filled + "-" * (bar_length - filled)
+        
+        content = f"""## Research Progress{elapsed}
+
+**Progress:** [{bar}] {current_pct:.0f}%
+
+---
+
+"""
+        
+        # Show stage status
+        current_stage_idx = -1
+        if self.current_stage in stages_order:
+            current_stage_idx = stages_order.index(self.current_stage)
+        
+        for idx, stage in enumerate(stages_order):
+            icon = STAGE_ICONS.get(stage, "[...]")
+            name = STAGE_NAMES.get(stage, stage.value)
+            
+            if idx < current_stage_idx:
+                # Completed stage
+                content += f"[DONE] ~~{name}~~\n"
+            elif idx == current_stage_idx:
+                # Current stage
+                content += f"**{icon} {name}** <- *Current*\n"
+            else:
+                # Pending stage
+                content += f"[ ] {name}\n"
+        
+        content += "\n---\n\n"
+        
+        # Show recent activity log (last 8 updates)
+        content += "### Activity Log\n\n"
+        
+        if self.updates:
+            recent_updates = self.updates[-8:]
+            for update in reversed(recent_updates):
+                icon = STAGE_ICONS.get(update.stage, "*")
+                time_str = update.timestamp.strftime("%H:%M:%S")
+                
+                msg = f"`{time_str}` {icon} **{update.message}**"
+                if update.details:
+                    msg += f"\n   _{update.details}_"
+                content += msg + "\n\n"
+        else:
+            content += "_Starting research..._\n"
+        
+        return content
+
+
+async def run_research_with_updates(topic: str, progress_display: ProgressDisplay):
     """Run research with real-time updates to the UI."""
     
-    # Initialize state
-    initial_state = ResearchState(research_topic=topic)
+    # Reset callback state
+    progress_callback.reset()
     
-    # Create graph
-    graph = create_research_graph()
+    # Register async callback for UI updates
+    async def on_progress(update: ProgressUpdate):
+        await progress_display.update(update)
     
-    # Create progress message with spinner
-    progress_msg = cl.Message(content="")
-    await progress_msg.send()
+    progress_callback.register_async(on_progress)
     
-    stages = {
-        "plan": {"name": "Planning Research", "done": False, "details": ""},
-        "search": {"name": "Searching Web", "done": False, "details": ""},
-        "synthesize": {"name": "Synthesizing Findings", "done": False, "details": ""},
-        "write_report": {"name": "Writing Report", "done": False, "details": ""}
-    }
-    
-    def update_progress():
-        """Update the progress display with details."""
-        content = "### Research Progress\n\n"
-        for stage_key, stage_info in stages.items():
-            if stage_info["done"]:
-                status = f"**{stage_info['name']}**"
-                if stage_info.get("details"):
-                    status += f" - {stage_info['details']}"
-                content += f"{status}\n"
-            elif any(s["done"] for s in list(stages.values())[:list(stages.keys()).index(stage_key)]):
-                content += f"**{stage_info['name']}** (in progress...)\n"
-            else:
-                content += f"{stage_info['name']}\n"
-        return content
-    
-    # Update progress initially
-    progress_msg.content = update_progress()
-    await progress_msg.update()
-    
-    # Execute workflow and get final state
-    final_state = await graph.ainvoke(initial_state)
-    
-    # Update with actual results
-    if final_state.get("plan"):
-        plan = final_state["plan"]
-        stages["plan"]["done"] = True
-        stages["plan"]["details"] = f"{len(plan.search_queries)} queries generated"
-    
-    if final_state.get("search_results"):
-        stages["search"]["done"] = True
-        stages["search"]["details"] = f"{len(final_state['search_results'])} sources found"
-    
-    if final_state.get("key_findings"):
-        stages["synthesize"]["done"] = True
-        stages["synthesize"]["details"] = f"{len(final_state['key_findings'])} insights extracted"
-    
-    if final_state.get("final_report"):
-        stages["write_report"]["done"] = True
-        stages["write_report"]["details"] = f"{len(final_state['final_report'])} characters"
-    
-    # Mark all stages as complete
-    for stage in stages.values():
-        stage["done"] = True
-    
-    progress_msg.content = update_progress() + "\n\n**All research stages completed successfully!**"
-    await progress_msg.update()
-    
-    return final_state
+    try:
+        # Initialize state
+        initial_state = ResearchState(research_topic=topic)
+        
+        # Create graph
+        graph = create_research_graph()
+        
+        # Execute workflow and get final state
+        final_state = await graph.ainvoke(initial_state)
+        
+        # Emit completion
+        search_results = final_state.get('search_results', [])
+        key_findings = final_state.get('key_findings', [])
+        await emit_complete(topic, len(search_results), len(key_findings))
+        
+        return final_state
+        
+    finally:
+        # Cleanup callback
+        progress_callback.unregister(on_progress)
 
 
 @cl.on_chat_start
 async def start():
     """Initialize the chat session."""
     await cl.Message(
-        content="# Deep Research Agent\n\n"
-                "Welcome! I'm your AI research assistant powered by LangGraph.\n\n"
-                "**How it works:**\n"
-                "1. Tell me what you want to research\n"
-                "2. I'll create a research plan\n"
-                "3. Search the web using DuckDuckGo\n"
-                "4. Synthesize findings with Gemini AI\n"
-                "5. Generate a comprehensive report\n\n"
-                "**What would you like to research today?**",
+        content="""# Deep Research Agent
+
+Welcome! I'm your AI research assistant powered by **LangGraph** and **Gemini**.
+
+## How it works:
+1. **Tell me** what you want to research
+2. I'll **search** the web for authoritative sources
+3. **Synthesize** findings using AI
+4. **Generate** a comprehensive report
+
+## Features:
+- Real-time web search with DuckDuckGo
+- Source credibility scoring
+- Multiple export formats (MD, HTML, TXT)
+- Live progress tracking
+
+---
+
+**What would you like to research today?** 
+
+_Example topics:_
+- "Future of quantum computing in 2025"
+- "How does WebSocket streaming work?"
+- "Best practices for microservices architecture"
+""",
         author="Research Agent"
     ).send()
 
@@ -107,7 +224,7 @@ async def main(message: cl.Message):
     
     if not topic:
         await cl.Message(
-            content="Please provide a research topic.",
+            content="WARNING: Please provide a research topic.",
             author="System"
         ).send()
         return
@@ -117,28 +234,40 @@ async def main(message: cl.Message):
         config.validate_config()
     except ValueError as e:
         await cl.Message(
-            content=f"Configuration Error: {str(e)}\n\n"
-                    "Please set your GEMINI_API_KEY in the .env file.",
+            content=f"**Configuration Error:** {str(e)}\n\n"
+                    "Please set your API key in the `.env` file.",
             author="System"
         ).send()
         return
     
     # Show starting message
     await cl.Message(
-        content=f"**Starting Research**\n\n"
-                f"Topic: *{topic}*\n\n"
-                f"This will take 2-5 minutes. Please wait...",
+        content=f"""## Starting Research
+
+**Topic:** _{topic}_
+
+**Configuration:**
+- Model: `{config.model_name}`
+- Max Queries: `{config.max_search_queries}`
+- Max Sections: `{config.max_report_sections}`
+
+_Research will begin shortly..._
+""",
         author="Research Agent"
     ).send()
     
+    # Initialize progress display
+    progress_display = ProgressDisplay()
+    await progress_display.initialize(topic)
+    
     try:
         # Run research with updates
-        final_state = await run_research_with_updates(topic)
+        final_state = await run_research_with_updates(topic, progress_display)
         
         # Check for errors
         if final_state.get("error"):
             await cl.Message(
-                content=f"**Research Failed**\n\n{final_state.get('error')}",
+                content=f"## Research Failed\n\n{final_state.get('error')}",
                 author="System"
             ).send()
             return
@@ -157,6 +286,7 @@ async def main(message: cl.Message):
         
         # Count high-credibility sources
         high_cred_count = sum(1 for score in credibility_scores if score.get('level') == 'high')
+        medium_cred_count = sum(1 for score in credibility_scores if score.get('level') == 'medium')
         
         # Get LLM tracking info
         llm_calls = final_state.get('llm_calls', 0)
@@ -164,24 +294,30 @@ async def main(message: cl.Message):
         total_output_tokens = final_state.get('total_output_tokens', 0)
         total_tokens = total_input_tokens + total_output_tokens
         
-        summary_content = f"""### Research Summary
+        # Calculate elapsed time
+        elapsed_seconds = 0
+        if progress_display.start_time:
+            elapsed_seconds = (datetime.now() - progress_display.start_time).seconds
+        
+        summary_content = f"""## Research Complete!
 
-**Data Collected:**
-- **Sources:** {len(unique_sources)} unique websites ({high_cred_count} high-credibility)
-- **Search Results:** {len(search_results)} total results
-- **Key Insights:** {len(key_findings)} findings extracted
-- **Report Sections:** {len(report_sections)} sections generated
-- **Processing Iterations:** {final_state.get('iterations', 0)}
+### Data Collected
+| Metric | Value |
+|--------|-------|
+| Unique Sources | **{len(unique_sources)}** |
+| High Credibility | **{high_cred_count}** |
+| Medium Credibility | **{medium_cred_count}** |
+| Key Insights | **{len(key_findings)}** |
+| Report Sections | **{len(report_sections)}** |
 
-**Report Statistics:**
-- **Total Length:** {len(final_state.get('final_report', ''))} characters
-- **Research Time:** ~{final_state.get('iterations', 0) * 15} seconds
-
-**LLM Usage:**
-- **API Calls:** {llm_calls} calls
-- **Input Tokens:** {total_input_tokens:,} tokens
-- **Output Tokens:** {total_output_tokens:,} tokens
-- **Total Tokens:** {total_tokens:,} tokens
+### Performance
+| Metric | Value |
+|--------|-------|
+| Total Time | **{elapsed_seconds}s** |
+| LLM Calls | **{llm_calls}** |
+| Input Tokens | **{total_input_tokens:,}** |
+| Output Tokens | **{total_output_tokens:,}** |
+| Total Tokens | **{total_tokens:,}** |
 """
         
         await cl.Message(
@@ -212,23 +348,21 @@ async def main(message: cl.Message):
                 metadata={
                     'sources': len(unique_sources),
                     'sections': len(report_sections),
-                    'findings': len(key_findings)
+                    'findings': len(key_findings),
+                    'elapsed_seconds': elapsed_seconds,
+                    'total_tokens': total_tokens
                 }
             )
             
-            preview = report
-            
-            report_header = f"""### Final Report Generated
+            report_header = f"""## Final Report
 
-**Report Details:**
-- Length: {len(report):,} characters
+**Report Statistics:**
+- Length: **{len(report):,}** characters
 - Saved to: `{output_file}`
-- Format: Markdown
 
 ---
 
-{preview}"""
-            
+{report}"""
             
             await cl.Message(
                 content=report_header,
@@ -265,10 +399,16 @@ async def main(message: cl.Message):
             ]
             
             await cl.Message(
-                content="### Download Report\n\nDownload the report in multiple formats:\n"
-                       f"- Markdown: `{filename}`\n"
-                       f"- HTML: `{html_file.name}`\n"
-                       f"- Plain Text: `{txt_file.name}`",
+                content=f"""## Download Report
+
+Download your report in multiple formats:
+
+| Format | File |
+|--------|------|
+| Markdown | `{filename}` |
+| HTML | `{html_file.name}` |
+| Plain Text | `{txt_file.name}` |
+""",
                 elements=elements,
                 author="Research Agent"
             ).send()
@@ -277,27 +417,43 @@ async def main(message: cl.Message):
             await cl.Message(
                 content="""---
 
-### Ready for Another Research?
+## Ready for Another Research?
 
-Type your next research topic below, or try these suggestions:
-- "Future trends in [your industry]"
-- "Comparative analysis of [topic A] vs [topic B]"
-- "Best practices for [specific challenge]"
-- "Impact of [technology/trend] on [domain]"
+Type your next research topic below, or try one of these:
+
+- *"Future trends in [your industry]"*
+- *"Comparative analysis of [topic A] vs [topic B]"*
+- *"Best practices for [specific challenge]"*
+- *"Impact of [technology/trend] on [domain]"*
 
 **What would you like to research next?**""",
                 author="Research Agent"
             ).send()
         else:
             await cl.Message(
-                content="No report was generated. Please try again.",
+                content="WARNING: No report was generated. Please try again.",
                 author="System"
             ).send()
     
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         await cl.Message(
-            content=f"**Unexpected Error**\n\n{str(e)}\n\n"
-                    "Please check the logs and try again.",
+            content=f"""## Unexpected Error
+
+**Error:** {str(e)}
+
+<details>
+<summary>Technical Details</summary>
+
+```
+{error_details}
+```
+
+</details>
+
+Please check the logs and try again.
+""",
             author="System"
         ).send()
 
@@ -305,4 +461,3 @@ Type your next research topic below, or try these suggestions:
 if __name__ == "__main__":
     from chainlit.cli import run_chainlit
     run_chainlit(__file__)
-

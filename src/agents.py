@@ -17,6 +17,14 @@ from src.config import config
 from src.utils.credibility import CredibilityScorer
 from src.utils.citations import CitationFormatter
 from src.llm_tracker import estimate_tokens
+from src.callbacks import (
+    emit_planning_start, emit_planning_complete,
+    emit_search_start, emit_search_results, 
+    emit_extraction_start, emit_extraction_complete,
+    emit_synthesis_start, emit_synthesis_progress, emit_synthesis_complete,
+    emit_writing_start, emit_writing_section, emit_writing_complete,
+    emit_error
+)
 import time
 
 logging.basicConfig(level=logging.INFO)
@@ -84,36 +92,96 @@ class ResearchPlanner:
         """
         logger.info(f"Planning research for: {state.research_topic}")
         
+        # Emit progress update
+        await emit_planning_start(state.research_topic)
+        
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert research planner. Given a research topic, create a comprehensive research plan.
+            ("system", """You are an expert research strategist and information architect. Your role is to create comprehensive, methodical research plans that maximize accuracy and depth of coverage.
 
-Your plan should include:
-1. Clear research objectives (3-5 objectives)
-2. Strategic search queries to gather information (up to {max_queries} queries)
-   - Create diverse queries covering different aspects
-   - Include both broad overview queries and specific deep-dive queries
-   - Consider current trends, historical context, and future implications
-3. An outline for the final report (up to {max_sections} sections)
+## Your Core Responsibilities
 
-Be strategic and thorough. The search queries will be used by an autonomous agent that can:
-- Execute web searches
-- Extract full content from web pages
-- Gather information iteratively
+### 1. Define SMART Research Objectives (3-5 objectives)
+Create objectives that are:
+- **Specific**: Target concrete aspects of the topic, not vague generalities
+- **Measurable**: Can be verified as addressed in the final report
+- **Achievable**: Realistically answerable through web research
+- **Relevant**: Directly address the user's query and implied needs
+- **Time-aware**: Consider current state, recent developments, and future outlook
 
-Design your queries to maximize information gathering."""),
+### 2. Design Strategic Search Queries (up to {max_queries} queries)
+
+**Query Diversity Matrix** - Ensure coverage across:
+- **Definitional queries**: "What is [topic]" / "[topic] explained"
+- **Mechanism queries**: "How does [topic] work" / "[topic] architecture"
+- **Comparison queries**: "[topic] vs alternatives" / "[topic] comparison"
+- **Expert/authoritative queries**: "[topic] research paper" / "[topic] official documentation"
+- **Practical queries**: "[topic] best practices" / "[topic] implementation guide"
+- **Trend queries**: "[topic] 2024" / "latest [topic] developments"
+- **Problem/solution queries**: "[topic] challenges" / "[topic] limitations"
+
+**Query Quality Guidelines**:
+- Use specific technical terms when appropriate
+- Include year markers for time-sensitive topics (e.g., "2024", "latest")
+- Add domain qualifiers for targeted results (e.g., "academic", "enterprise", "tutorial")
+- Avoid overly broad single-word queries
+- Consider alternative phrasings and synonyms
+
+### 3. Structure the Report Outline (up to {max_sections} sections)
+
+Create a logical flow that:
+- Starts with context/background (helps readers understand the landscape)
+- Progresses from fundamentals to advanced topics
+- Groups related concepts together
+- Ends with practical implications, conclusions, or future outlook
+- Includes a dedicated section for technical details if applicable
+
+**Recommended Section Types**:
+- Executive Summary / Overview
+- Background & Context  
+- Core Concepts / How It Works
+- Key Features / Components / Architecture
+- Benefits & Advantages
+- Challenges & Limitations
+- Use Cases / Applications
+- Comparison with Alternatives (if relevant)
+- Best Practices / Implementation Guidelines
+- Future Outlook / Trends
+- Conclusion & Recommendations
+
+## Output Quality Standards
+- Every search query must have a clear, distinct purpose
+- No redundant or overlapping queries
+- Report sections should comprehensively cover all objectives
+- Consider the user's apparent expertise level when designing the plan"""),
             ("human", """Research Topic: {topic}
+
+Analyze this topic carefully. Consider:
+1. What is the user really trying to understand?
+2. What are the key dimensions of this topic?
+3. What authoritative sources would have the best information?
+4. What technical depth is appropriate?
 
 Create a detailed research plan in JSON format:
 {{
-    "topic": "the research topic",
-    "objectives": ["objective 1", "objective 2", ...],
-    "search_queries": [
-        {{"query": "search query 1", "purpose": "why this query"}},
-        {{"query": "search query 2", "purpose": "why this query"}},
+    "topic": "the research topic (refined if needed for clarity)",
+    "objectives": [
+        "Specific, measurable objective 1",
+        "Specific, measurable objective 2",
         ...
     ],
-    "report_outline": ["section 1 title", "section 2 title", ...]
-}}""")
+    "search_queries": [
+        {{"query": "well-crafted search query 1", "purpose": "specific reason this query helps achieve objectives"}},
+        {{"query": "well-crafted search query 2", "purpose": "specific reason this query helps achieve objectives"}},
+        ...
+    ],
+    "report_outline": [
+        "Section 1: Logical starting point",
+        "Section 2: Building on Section 1",
+        ...
+    ]
+}}
+
+Ensure each query targets different aspects and the outline tells a coherent story.""")
         ])
         
         for attempt in range(self.max_retries):
@@ -175,6 +243,9 @@ Create a detailed research plan in JSON format:
                 logger.info(f"Created plan with {len(plan.search_queries)} queries (enforced max: {config.max_search_queries})")
                 logger.info(f"Report outline has {len(plan.report_outline)} sections (enforced max: {config.max_report_sections})")
                 
+                # Emit progress update
+                await emit_planning_complete(len(plan.search_queries), len(plan.report_outline))
+                
                 # Return dict updates - LangGraph merges into state
                 return {
                     "plan": plan,
@@ -222,31 +293,80 @@ class ResearchSearcher:
         Returns dict with search results that LangGraph will merge into state.
         """
         if not state.plan:
+            await emit_error("No research plan available")
             return {"error": "No research plan available"}
         
         logger.info(f"Autonomous agent researching: {len(state.plan.search_queries)} planned queries")
+        
+        # Emit progress for each planned query
+        total_queries = len(state.plan.search_queries)
+        for i, query in enumerate(state.plan.search_queries, 1):
+            await emit_search_start(query.query, i, total_queries)
         
         # Create system prompt for autonomous agent with config-based limits
         max_searches = config.max_search_queries
         max_results_per_search = config.max_search_results_per_query
         expected_total_results = max_searches * max_results_per_search
         
-        system_prompt = f"""You are an expert research assistant with access to web search and content extraction tools.
+        system_prompt = f"""You are an elite research investigator with expertise in finding accurate, authoritative information. Your mission is to gather comprehensive, verified data from the most credible sources available.
 
-Your task is to efficiently research the given topic by:
-1. Executing the planned search queries (limit to {max_searches} searches maximum)
-2. Extracting detailed content from the most relevant sources
-3. Gathering sufficient information to answer the research objectives
+## Your Available Tools
+1. **web_search(query, max_results)**: Search the web for information
+2. **extract_webpage_content(url)**: Extract full article content from a URL
 
-Guidelines:
-- Use web_search to find relevant sources (limit to {max_searches} searches, {max_results_per_search} results each)
-- Use extract_webpage_content to read full articles from the top {expected_total_results} promising URLs
-- Focus on authoritative, credible sources
-- Prioritize quality over quantity
-- Extract content from {expected_total_results} high-quality sources
+## Research Protocol
 
-When you have gathered sufficient information ({expected_total_results} search results with content extractions), respond with:
-RESEARCH_COMPLETE: [brief summary of what you found]"""
+### Phase 1: Strategic Searching
+Execute the planned search queries systematically:
+- Limit to **{max_searches} searches maximum**
+- Each search returns up to **{max_results_per_search} results**
+- If initial queries yield poor results, adapt with refined queries
+
+### Phase 2: Source Evaluation & Content Extraction
+For each search result, quickly assess source quality:
+
+**HIGH-PRIORITY Sources (extract immediately):**
+- Government sites (.gov, .gov.uk, .europa.eu)
+- Academic institutions (.edu, .ac.uk, university domains)
+- Peer-reviewed journals (nature.com, sciencedirect.com, ieee.org)
+- Official documentation (docs.*, official product sites)
+- Established news organizations (reuters.com, bbc.com, nytimes.com)
+- Industry-recognized publications
+
+**MEDIUM-PRIORITY Sources (extract if needed):**
+- Well-known tech publications (techcrunch.com, wired.com, arstechnica.com)
+- Reputable blogs with author credentials
+- Company blogs from established organizations
+- Wikipedia (good for overview, verify claims elsewhere)
+
+**LOW-PRIORITY Sources (use cautiously):**
+- Personal blogs without credentials
+- User-generated content sites
+- Sites with excessive ads or clickbait titles
+- Sources without clear authorship
+- Outdated content (check publication dates)
+
+### Phase 3: Content Gathering
+- Extract full content from the **top {expected_total_results} most promising URLs**
+- Prioritize sources that directly address the research objectives
+- Look for primary sources (original research, official docs) over secondary summaries
+- Note publication dates - prefer recent content for evolving topics
+
+## Quality Checkpoints
+Before concluding, verify you have:
+[x] Multiple sources confirming key facts (cross-referencing)
+[x] At least some high-credibility sources in your collection
+[x] Coverage across different aspects of the research objectives
+[x] Both overview content and specific technical details
+
+## Completion Signal
+When you have gathered sufficient high-quality information (aim for {expected_total_results} quality sources with extracted content), respond with:
+
+RESEARCH_COMPLETE: [Summary of what you found, including:
+- Number of sources gathered
+- Key themes discovered
+- Any notable gaps or areas needing more research
+- Confidence level in the gathered information]"""
         
         # Create autonomous agent using LangChain's create_agent
         agent_graph = create_agent(
@@ -267,15 +387,33 @@ RESEARCH_COMPLETE: [brief summary of what you found]"""
                 )
                 
                 # Estimate input tokens
-                input_message = f"""Research Topic: {state.research_topic}
+                input_message = f"""## Research Mission Brief
 
-Research Objectives:
+### Topic Under Investigation:
+{state.research_topic}
+
+### Research Objectives (All must be addressed):
 {objectives_text}
 
-Planned Search Queries:
+### Planned Search Queries (Execute strategically):
 {queries_text}
 
-Begin your research. Use the tools to gather comprehensive information."""
+---
+
+### Your Mission:
+1. Execute the search queries above using the web_search tool
+2. Evaluate results for credibility and relevance
+3. Extract full content from the most authoritative sources using extract_webpage_content
+4. Ensure you gather information that addresses ALL research objectives
+5. Prioritize recent, authoritative sources over older or less credible ones
+
+### Quality Targets:
+- Gather from at least {config.max_search_queries * config.max_search_results_per_query} different sources
+- Extract full content from the top 5-8 most relevant pages
+- Ensure coverage across all research objectives
+- Include at least some academic, government, or official documentation sources if available
+
+Begin your systematic research now. Execute searches and extract content until you have comprehensive coverage."""
                 
                 input_tokens = estimate_tokens(input_message)
                 
@@ -349,7 +487,18 @@ Begin your research. Use the tools to gather comprehensive information."""
                 
                 logger.info(f"Autonomous agent collected {len(search_results)} results")
                 
+                # Calculate total extracted content
+                total_extracted_chars = sum(
+                    len(r.content) if r.content else 0 
+                    for r in search_results
+                )
+                extracted_count = sum(1 for r in search_results if r.content)
+                
+                # Emit extraction completion
+                await emit_extraction_complete(extracted_count, total_extracted_chars)
+                
                 if not search_results:
+                    await emit_error("Agent did not collect any search results")
                     raise ValueError("Agent did not collect any search results")
             
                 # Score all results first
@@ -430,26 +579,92 @@ class ResearchSynthesizer:
         logger.info(f"Synthesizing findings from {len(state.search_results)} results")
         
         if not state.search_results:
+            await emit_error("No search results to synthesize")
             return {"error": "No search results to synthesize"}
         
+        # Emit synthesis start
+        await emit_synthesis_start(len(state.search_results))
+        
         # Create system prompt for autonomous synthesis agent
-        system_prompt = """You are an expert research synthesis agent. Your task is to analyze search results and extract key findings.
+        system_prompt = """You are a senior research analyst specializing in synthesizing complex information into accurate, actionable insights. Your task is to analyze search results and extract verified, well-supported findings.
 
-You have access to the extract_insights_from_text tool which can help extract specific insights from text.
+## Your Available Tools
+- **extract_insights_from_text(text, focus)**: Extract specific insights from text content
 
-IMPORTANT: Each source has a credibility score (HIGH/MEDIUM/LOW) and score (0-100). 
-- PRIORITIZE information from HIGH-credibility sources (score ≥70)
-- When sources contradict each other, trust HIGH-credibility sources over MEDIUM or LOW
-- Use MEDIUM-credibility sources (score 40-69) to supplement but not override HIGH-credibility sources
-- Be cautious with LOW-credibility sources (score <40) - only use if no other sources are available
+## Source Credibility Framework
 
-For each finding:
-- Summarize the key insight
-- Note which sources support it (prefer citing high-credibility sources)
-- Identify any contradictions or debates (resolve using credibility hierarchy)
-- Be concise but comprehensive
+Each source has a credibility rating. Apply this hierarchy strictly:
 
-Focus on the most important and relevant information from the most credible sources. When ready, return your findings as a JSON array of strings."""
+### HIGH Credibility (Score >=70) - Primary Sources
+- Government and institutional sources
+- Peer-reviewed research and academic papers
+- Official documentation and specifications
+- Established news organizations with editorial standards
+=> **TRUST**: Use as primary basis for findings
+
+### MEDIUM Credibility (Score 40-69) - Supporting Sources
+- Industry publications and tech blogs
+- Expert commentary and analysis
+- Well-maintained wikis and documentation
+=> **VERIFY**: Cross-reference with HIGH sources; use to add context
+
+### LOW Credibility (Score <40) - Supplementary Only
+- Personal blogs, forums, user comments
+- Sources without clear authorship
+- Outdated or unverified content
+=> **CAUTION**: Only use if corroborated by higher-credibility sources
+
+## Synthesis Methodology
+
+### Step 1: Identify Core Facts
+- What claims appear in multiple HIGH-credibility sources?
+- What are the foundational facts that most sources agree on?
+- Extract specific data points: numbers, dates, names, technical specifications
+
+### Step 2: Detect and Resolve Conflicts
+When sources contradict each other:
+1. Check credibility scores - trust higher-rated sources
+2. Check recency - newer information may supersede older
+3. Check specificity - primary sources trump secondary summaries
+4. If unresolvable, note the disagreement in findings
+
+### Step 3: Synthesize Key Findings
+For each finding, ensure:
+- **Accuracy**: Only include information that appears in the sources
+- **Attribution**: Note which source numbers support the finding [1], [2], etc.
+- **Specificity**: Include concrete details, not vague generalities
+- **Balance**: Present multiple perspectives if sources differ
+
+### Step 4: Quality Control
+Before finalizing, verify:
+[x] No claims are made without source support
+[x] HIGH-credibility sources are prioritized
+[x] Contradictions are acknowledged, not ignored
+[x] Findings directly address research objectives
+[x] Technical accuracy is maintained (don't oversimplify incorrectly)
+
+## Output Format
+
+Return findings as a JSON array of strings. Each finding should:
+- Be a complete, standalone insight
+- Include source references where applicable
+- Be specific enough to be useful (avoid generic statements)
+- Focus on facts over opinions (unless opinion is from recognized experts)
+
+Example format:
+[
+    "Finding 1: [Specific fact or insight] - supported by sources [1], [3]",
+    "Finding 2: [Technical detail with specifics] - per official documentation [2]",
+    "Finding 3: [Trend or development] - noted across multiple industry sources [4], [5], [6]"
+]
+
+## Anti-Hallucination Rules
+DO NOT invent statistics, dates, or specifics not in sources
+DO NOT make claims beyond what sources support
+DO NOT present speculation as fact
+DO NOT ignore source credibility ratings
+DO say "sources indicate" or "according to [source]" for less certain claims
+DO note when information is limited or conflicting"""
         
         # Create autonomous synthesis agent
         agent_graph = create_agent(
@@ -491,12 +706,44 @@ Focus on the most important and relevant information from the most credible sour
                     ])
                 
                 # Prepare input message for the autonomous agent
-                input_message = f"""Research Topic: {state.research_topic}
+                input_message = f"""## Research Synthesis Task
 
-Search Results:
+### Topic: {state.research_topic}
+
+### Your Mission:
+Analyze the search results below and extract the most important, accurate, and well-supported findings.
+
+---
+
+### Search Results with Credibility Scores:
 {results_text}
 
-Please analyze these search results and extract key findings. You may use the extract_insights_from_text tool to help identify important insights. Return your findings as a JSON array of strings."""
+---
+
+### Synthesis Instructions:
+
+1. **Extract Key Facts**: Identify the core factual claims across sources
+2. **Cross-Reference**: Note which findings are supported by multiple sources
+3. **Resolve Conflicts**: When sources disagree, trust higher-credibility sources
+4. **Maintain Specificity**: Include specific details, numbers, and technical information
+5. **Note Limitations**: Flag areas where information is sparse or contradictory
+
+### Output Requirements:
+Return a JSON array of 10-15 key findings. Each finding should:
+- Be a complete, specific statement (not vague generalizations)
+- Reference source numbers when citing facts: "...according to [1]" or "...per [3], [5]"
+- Focus on facts that directly address the research topic
+- Prioritize findings from HIGH-credibility sources
+
+Example format:
+[
+    "The technology uses [specific mechanism] to achieve [specific outcome], enabling [specific capability] [1]",
+    "According to official documentation [2], the key components include: [list specific items]",
+    "Industry adoption has grown to [specific metric], with major deployments at [specific examples] [3], [5]",
+    "Experts note challenges including [specific challenge 1] and [specific challenge 2] [4]"
+]
+
+Analyze the sources now and extract your findings:"""
                 
                 # Estimate input tokens
                 input_tokens = estimate_tokens(input_message)
@@ -574,6 +821,9 @@ Please analyze these search results and extract key findings. You may use the ex
                 
                 logger.info(f"Extracted {len(key_findings)} key findings")
                 
+                # Emit synthesis completion
+                await emit_synthesis_complete(len(key_findings))
+                
                 # Return dict updates - LangGraph merges into state
                 return {
                     "key_findings": key_findings,
@@ -621,7 +871,11 @@ class ReportWriter:
         logger.info("Writing final report")
         
         if not state.plan or not state.key_findings:
+            await emit_error("Insufficient data for report generation")
             return {"error": "Insufficient data for report generation"}
+        
+        # Emit writing start
+        await emit_writing_start(len(state.plan.report_outline))
         
         # Track total LLM calls for report generation
         report_llm_calls = 0
@@ -633,7 +887,12 @@ class ReportWriter:
             try:
                 # Generate each section with retry
                 report_sections = []
-                for section_title in state.plan.report_outline:
+                total_sections = len(state.plan.report_outline)
+                
+                for section_idx, section_title in enumerate(state.plan.report_outline, 1):
+                    # Emit progress for each section
+                    await emit_writing_section(section_title, section_idx, total_sections)
+                    
                     section, section_tokens = await self._write_section(
                         state.research_topic,
                         section_title,
@@ -685,6 +944,9 @@ class ReportWriter:
                 
                 logger.info(f"Report generation complete: {len(final_report)} chars")
                 
+                # Emit writing completion
+                await emit_writing_complete(len(final_report))
+                
                 # Return dict updates - LangGraph merges into state
                 return {
                     "report_sections": report_sections,
@@ -725,21 +987,76 @@ class ReportWriter:
         logger.info(f"Writing section: {section_title}")
         
         # Create system prompt for section writing
-        system_prompt = """You are an expert research writer agent. Write comprehensive, well-structured sections for research reports.
+        system_prompt = f"""You are a distinguished research writer and subject matter expert. Your task is to write authoritative, accurate, and well-structured report sections that inform and educate readers.
 
-You have access to:
-- format_citation: Format citations in academic styles
-- validate_section_quality: Check if your section meets quality standards
+## Your Available Tools
+- **format_citation(url, title, style)**: Format citations in academic styles
+- **validate_section_quality(section_text, min_words)**: Verify section meets quality standards
 
-Requirements:
-- Minimum {min_words} words
-- Use clear, academic language
-- Include specific facts and data
-- Cite sources using [1], [2], etc.
-- Use markdown formatting
-- Be objective and balanced
+## Writing Standards
 
-You may use validate_section_quality to check your work before finalizing."""
+### Content Quality Requirements
+1. **Minimum Length**: {config.min_section_words} words (use validate_section_quality to verify)
+2. **Factual Accuracy**: Every claim must be grounded in the provided findings
+3. **Proper Citations**: Use inline citations [1], [2], etc. for all factual claims
+4. **Balanced Perspective**: Present multiple viewpoints when they exist
+5. **Technical Precision**: Use correct terminology; don't oversimplify incorrectly
+
+### Structure & Formatting (Markdown)
+- Use **bold** for key terms and important concepts
+- Use bullet points or numbered lists for multiple items
+- Use subheadings (### or ####) to organize complex sections
+- Include specific examples, data points, or case studies when available
+- Maintain logical flow from one paragraph to the next
+
+### Writing Style Guidelines
+- **Tone**: Professional, authoritative, but accessible
+- **Voice**: Third-person academic style (avoid "I", "we", "you")
+- **Clarity**: Explain complex concepts clearly; define technical terms
+- **Conciseness**: Every sentence should add value; avoid filler
+- **Precision**: Use specific language; avoid vague qualifiers like "very" or "many"
+
+## Critical Accuracy Rules
+
+### DO
+- Base all claims on the provided key findings
+- Cite sources for factual statements: "According to [1]..." or "Research indicates [2]..."
+- Distinguish between established facts and emerging trends
+- Note limitations or caveats when relevant
+- Use specific numbers, dates, and names from sources
+- Acknowledge when evidence is limited: "Available data suggests..."
+
+### DO NOT
+- Invent statistics, percentages, or specific numbers not in findings
+- Make claims that go beyond the provided information
+- Present opinions as facts without attribution
+- Ignore contradictions between sources
+- Use placeholder text or generic filler content
+- Oversimplify to the point of inaccuracy
+
+## Section Writing Process
+
+1. **Analyze**: Review the findings relevant to this section's topic
+2. **Outline**: Mentally structure the key points to cover
+3. **Draft**: Write comprehensive content with proper citations
+4. **Verify**: Use validate_section_quality to check length and citations
+5. **Refine**: Ensure logical flow and accuracy
+
+## Output Format
+Write the section content directly in markdown format. Start with the content immediately (the section title will be added automatically). Ensure proper spacing between paragraphs.
+
+Example structure:
+```
+[Opening paragraph introducing the section topic]
+
+[Main content paragraph with specific details and citations [1]]
+
+### [Subheading if needed]
+
+[Additional content with more citations [2], [3]]
+
+[Concluding paragraph summarizing key points]
+```"""
         
         # Create autonomous writing agent
         agent_graph = create_agent(
@@ -751,15 +1068,38 @@ You may use validate_section_quality to check your work before finalizing."""
         try:
             start_time = time.time()
             
-            # Prepare input message
-            input_message = f"""Research Topic: {topic}
-Section Title: {section_title}
-Minimum Words: {config.min_section_words}
+            # Prepare input message with source context
+            sources_context = ""
+            if search_results:
+                sources_context = "\n\nAvailable Sources for Citation:\n" + "\n".join(
+                    f"[{i+1}] {r.title} ({r.url})"
+                    for i, r in enumerate(search_results[:15])  # Top 15 sources
+                )
+            
+            input_message = f"""## Assignment: Write Report Section
 
-Key Findings:
+**Research Topic**: {topic}
+**Section Title**: {section_title}
+**Minimum Word Count**: {config.min_section_words} words
+
+---
+
+### Key Findings to Incorporate:
 {chr(10).join(f"- {f}" for f in findings)}
 
-Please write this section in markdown format. Use inline citations [1], [2], etc. to reference sources."""
+{sources_context}
+
+---
+
+### Instructions:
+1. Write a comprehensive section that covers the topic "{section_title}" thoroughly
+2. Incorporate the key findings above, adding context and explanation
+3. Use inline citations [1], [2], etc. when referencing specific facts from sources
+4. Maintain academic rigor while being accessible to general readers
+5. Use markdown formatting for structure (bold, lists, subheadings as needed)
+6. After writing, use validate_section_quality to ensure minimum word count is met
+
+Write the section content now:"""
             
             # Estimate input tokens
             input_tokens = estimate_tokens(input_message)
