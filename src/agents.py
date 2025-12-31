@@ -989,14 +989,10 @@ class ReportWriter:
         # Create system prompt for section writing
         system_prompt = f"""You are a distinguished research writer and subject matter expert. Your task is to write authoritative, accurate, and well-structured report sections that inform and educate readers.
 
-## Your Available Tools
-- **format_citation(url, title, style)**: Format citations in academic styles
-- **validate_section_quality(section_text, min_words)**: Verify section meets quality standards
-
 ## Writing Standards
 
 ### Content Quality Requirements
-1. **Minimum Length**: {config.min_section_words} words (use validate_section_quality to verify)
+1. **Minimum Length**: {config.min_section_words} words - ensure you write comprehensive, detailed content
 2. **Factual Accuracy**: Every claim must be grounded in the provided findings
 3. **Proper Citations**: Use inline citations [1], [2], etc. for all factual claims
 4. **Balanced Perspective**: Present multiple viewpoints when they exist
@@ -1038,12 +1034,16 @@ class ReportWriter:
 
 1. **Analyze**: Review the findings relevant to this section's topic
 2. **Outline**: Mentally structure the key points to cover
-3. **Draft**: Write comprehensive content with proper citations
-4. **Verify**: Use validate_section_quality to check length and citations
-5. **Refine**: Ensure logical flow and accuracy
+3. **Draft**: Write comprehensive, detailed content with proper citations
+4. **Refine**: Ensure logical flow, accuracy, and sufficient depth
 
-## Output Format
-Write the section content directly in markdown format. Start with the content immediately (the section title will be added automatically). Ensure proper spacing between paragraphs.
+## CRITICAL: Output Format
+
+You MUST write the section content directly as your response. DO NOT use tools or provide meta-commentary.
+Your entire response should be the section content in markdown format.
+
+Start with the content immediately (the section title will be added automatically). 
+Ensure proper spacing between paragraphs and aim for AT LEAST {config.min_section_words} words.
 
 Example structure:
 ```
@@ -1058,12 +1058,15 @@ Example structure:
 [Concluding paragraph summarizing key points]
 ```"""
         
-        # Create autonomous writing agent
-        agent_graph = create_agent(
-            self.llm,
-            self.tools,
-            system_prompt=system_prompt
-        )
+        # Create a simple chain without tools for cleaner content generation
+        # Tools were causing issues with content extraction
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.output_parsers import StrOutputParser
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", "{input}")
+        ])
         
         try:
             start_time = time.time()
@@ -1097,40 +1100,23 @@ Example structure:
 3. Use inline citations [1], [2], etc. when referencing specific facts from sources
 4. Maintain academic rigor while being accessible to general readers
 5. Use markdown formatting for structure (bold, lists, subheadings as needed)
-6. After writing, use validate_section_quality to ensure minimum word count is met
+6. Ensure your response is AT LEAST {config.min_section_words} words
+
+IMPORTANT: Your response should ONLY contain the section content in markdown format. 
+Do NOT use any tools. Do NOT provide meta-commentary. Just write the section content directly.
 
 Write the section content now:"""
             
             # Estimate input tokens
             input_tokens = estimate_tokens(input_message)
             
-            # Execute autonomous section writing
-            result = await agent_graph.ainvoke({
-                "messages": [{"role": "user", "content": input_message}]
-            })
+            # Execute section writing using simple chain
+            chain = prompt | self.llm | StrOutputParser()
+            content = await chain.ainvoke({"input": input_message})
             
-            # Extract content from result
-            messages = result.get('messages', [])
-            content = ""
-            if messages:
-                last_msg = messages[-1]
-                # Handle different content formats
-                if hasattr(last_msg, 'content'):
-                    msg_content = last_msg.content
-                    # If content is a list (like from tool responses), extract text
-                    if isinstance(msg_content, list):
-                        content = ""
-                        for item in msg_content:
-                            if isinstance(item, dict) and 'text' in item:
-                                content += item['text']
-                            elif isinstance(item, dict) and 'type' in item and item['type'] == 'text':
-                                content += item.get('text', '')
-                            else:
-                                content += str(item)
-                    else:
-                        content = str(msg_content)
-                else:
-                    content = str(last_msg)
+            # Content should now be a clean string
+            if not isinstance(content, str):
+                content = str(content)
             
             # Track LLM call
             duration = time.time() - start_time
@@ -1143,6 +1129,17 @@ Write the section content now:"""
                 'output_tokens': output_tokens,
                 'duration': round(duration, 2)
             }
+            
+            # Validate content is not empty
+            if not content or len(content.strip()) < 50:
+                logger.warning(f"Section '{section_title}' generated insufficient content: {len(content)} chars")
+                # Try to generate a basic section from findings if agent failed
+                if findings:
+                    logger.info(f"Creating fallback content for section '{section_title}'")
+                    content = f"\n\n{chr(10).join(findings[:3])}\n\n"
+                else:
+                    logger.error(f"Cannot create section '{section_title}' - no content and no findings")
+                    return None, None
             
             # Extract cited sources
             import re
@@ -1159,10 +1156,13 @@ Write the section content now:"""
                 sources=source_urls
             )
             
+            logger.info(f"Successfully wrote section '{section_title}': {len(content)} chars")
             return section, call_detail
             
         except Exception as e:
             logger.error(f"Error writing section '{section_title}': {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None, None
     
     def _compile_report(self, state: ResearchState) -> str:
