@@ -4,9 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2.57+-green.svg)](https://github.com/langchain-ai/langgraph)
 
-A production-ready multi-agent autonomous research system built with LangGraph and LangChain. Four specialized agents work together to conduct comprehensive research on any topic and generate detailed, citation-backed reports with credibility scoring and quality metrics. Supports both local models (Ollama) and cloud APIs (Gemini).
-
-**Actively seeking opportunities as an ML Engineer II / Data Scientist II / AI Engineer II**
+A production-ready multi-agent autonomous research system built with LangGraph and LangChain. Four specialized agents work together to conduct comprehensive research on any topic and generate detailed, citation-backed reports with credibility scoring and quality metrics. Supports both local models (Ollama) and cloud APIs.
 
 ## Demo
 https://github.com/user-attachments/assets/df8404c6-7423-4a49-864a-bd4d59885c1b
@@ -40,6 +38,10 @@ The system implements a four-stage pipeline orchestrated by LangGraph's StateGra
 ```
 ResearchPlanner → ResearchSearcher → ResearchSynthesizer → ReportWriter
 ```
+
+![Deep Research Agent Flow Diagram](assets/flow.png)
+
+*Complete workflow diagram showing the multi-agent research pipeline, state transitions, and interactions between components.*
 
 ### Agent Responsibilities
 
