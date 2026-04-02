@@ -58,6 +58,17 @@ class ResearchConfig(BaseModel):
         description="Model for summarizing search results (faster/cheaper)"
     )
     
+    # Search Provider Configuration
+    search_provider: str = Field(
+        default=os.getenv("SEARCH_PROVIDER", "duckduckgo"),
+        description="Search provider: 'duckduckgo' or 'tavily'"
+    )
+
+    tavily_api_key: str = Field(
+        default_factory=lambda: os.getenv("TAVILY_API_KEY", ""),
+        description="Tavily API key (required if using Tavily search provider)"
+    )
+
     # Search Configuration
     max_search_queries: int = Field(
         default=int(os.getenv("MAX_SEARCH_QUERIES", "3")),

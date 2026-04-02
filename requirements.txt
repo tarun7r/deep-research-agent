@@ -12,6 +12,7 @@ langgraph-checkpoint-sqlite>=2.0.0
 
 # Search
 ddgs>=1.0.0
+tavily-python>=0.5.0
 
 # HTTP Client (async-first with HTTP/2 support)
 httpx[http2]>=0.27.0
