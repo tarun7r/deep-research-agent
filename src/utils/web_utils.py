@@ -278,6 +278,67 @@ class DuckDuckGoProvider(SearchProvider):
         return results
 
 
+class TavilyProvider(SearchProvider):
+    """Tavily search provider with circuit breaker integration."""
+
+    def __init__(self, api_key: str, max_results: int = 5):
+        from tavily import TavilyClient
+        self.max_results = max_results
+        self.client = TavilyClient(api_key=api_key)
+        self.circuit_breaker = CircuitBreaker(
+            name="tavily",
+            failure_threshold=3,
+            reset_timeout=60.0
+        )
+
+    @property
+    def name(self) -> str:
+        return "tavily"
+
+    async def search(self, query: str, max_results: Optional[int] = None) -> List[SearchResult]:
+        if not self.circuit_breaker.can_execute():
+            retry_after = self.circuit_breaker.get_retry_after()
+            raise CircuitOpenError("tavily", retry_after)
+
+        results_count = max_results or self.max_results
+
+        try:
+            logger.info(f"Searching Tavily for: {query}")
+
+            response = await asyncio.to_thread(
+                self.client.search,
+                query=query,
+                max_results=results_count,
+                search_depth="basic",
+            )
+
+            results = []
+            for item in response.get("results", []):
+                results.append(SearchResult(
+                    query=query,
+                    title=item.get("title", ""),
+                    url=item.get("url", ""),
+                    snippet=item.get("content", ""),
+                ))
+
+            self.circuit_breaker.record_success()
+            logger.info(f"Found {len(results)} results for: {query}")
+            return results
+
+        except CircuitOpenError:
+            raise
+        except Exception as e:
+            self.circuit_breaker.record_failure()
+            error_str = str(e).lower()
+            if "rate" in error_str or "limit" in error_str or "429" in error_str:
+                raise RateLimitError(
+                    message=f"Tavily rate limit: {str(e)}",
+                    retry_after=60,
+                    service="tavily"
+                )
+            raise SearchError(f"Tavily search failed for '{query}'", details=str(e))
+
+
 class WebSearchTool:
     """Web search tool with provider abstraction and fallback support."""
     
