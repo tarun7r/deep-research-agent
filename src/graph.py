@@ -4,7 +4,6 @@ Nodes return dict updates that LangGraph automatically merges into state.
 This is the recommended pattern per LangGraph documentation.
 """
 
-import os
 import uuid
 import sqlite3
 from typing import Optional, Dict, Any
@@ -17,6 +16,8 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from src.state import ResearchState
 from src.agents import ResearchPlanner, ResearchSearcher, ResearchSynthesizer, ReportWriter
+from src.deep_research import DeepResearchSearcher
+from src.agents import get_llm
 from src.utils.cache import ResearchCache
 from src.config import config
 from src.exceptions import DeepResearchError
@@ -73,6 +74,7 @@ def create_research_graph(checkpointer=None):
     
     planner = ResearchPlanner()
     searcher = ResearchSearcher()
+    deep_searcher = DeepResearchSearcher(llm=get_llm(temperature=0.3, model_override=config.summarization_model))
     synthesizer = ResearchSynthesizer()
     writer = ReportWriter(citation_style=config.citation_style)
     
@@ -80,6 +82,7 @@ def create_research_graph(checkpointer=None):
     
     workflow.add_node("plan", planner.plan)
     workflow.add_node("search", searcher.search)
+    workflow.add_node("deep_search", deep_searcher.deep_search)
     workflow.add_node("synthesize", synthesizer.synthesize)
     workflow.add_node("write_report", writer.write_report)
     
@@ -96,7 +99,7 @@ def create_research_graph(checkpointer=None):
             return END
             
         logger.info(f"Plan validated: {len(state.plan.search_queries)} queries")
-        return "search"
+        return "deep_search" if config.deep_research else "search"
     
     def should_continue_after_search(state: ResearchState) -> str:
         """Validate search results and route appropriately."""
@@ -142,7 +145,13 @@ def create_research_graph(checkpointer=None):
     workflow.add_conditional_edges(
         "plan",
         should_continue_after_plan,
-        {"search": "search", END: END}
+        {"search": "search", "deep_search": "deep_search", END: END}
+    )
+
+    workflow.add_conditional_edges(
+        "deep_search",
+        should_continue_after_search,
+        {"synthesize": "synthesize", END: END}
     )
     
     workflow.add_conditional_edges(

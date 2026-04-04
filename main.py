@@ -57,12 +57,12 @@ async def main():
         
         if final_state.get("plan"):
             plan = final_state["plan"]
-            print(f"\nResearch Plan Summary:")
+            print("\nResearch Plan Summary:")
             print(f"  - Objectives: {len(plan.objectives)}")
             print(f"  - Search Queries: {len(plan.search_queries)}")
             print(f"  - Report Sections: {len(plan.report_outline)}")
         
-        print(f"\nResearch Data Summary:")
+        print("\nResearch Data Summary:")
         print(f"  - Search Results: {len(final_state.get('search_results', []))}")
         print(f"  - Key Findings: {len(final_state.get('key_findings', []))}")
         print(f"  - Report Sections: {len(final_state.get('report_sections', []))}")

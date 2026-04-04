@@ -1,14 +1,13 @@
 """Interactive Chainlit interface for Deep Research Agent with enhanced UX."""
 
-import asyncio
 import chainlit as cl
+from chainlit.input_widget import Switch
+import uuid
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 from src.config import config
-from src.state import ResearchState
-from src.graph import create_research_graph
+from src.graph import run_research
 from src.utils.exports import ReportExporter
 from src.utils.history import ResearchHistory
 from src.callbacks import (
@@ -126,7 +125,6 @@ class EnhancedProgressDisplay:
         
         lines = []
         for idx, stage in enumerate(stages):
-            emoji = STAGE_EMOJI.get(stage, "")
             name = STAGE_NAMES.get(stage, stage.value)
             
             if idx < current_idx:
@@ -220,9 +218,27 @@ async def run_research_with_updates(topic: str, progress_display: EnhancedProgre
     progress_callback.register_async(on_progress)
     
     try:
-        initial_state = ResearchState(research_topic=topic)
-        graph = create_research_graph()
-        final_state = await graph.ainvoke(initial_state)
+        run_settings = cl.user_session.get("run_settings", {}) or {}
+        use_cache = bool(run_settings.get("use_cache", True))
+        use_checkpoints = bool(run_settings.get("use_checkpoints", False))
+
+        final_state = await run_research(
+            topic=topic,
+            verbose=False,
+            use_cache=use_cache,
+            use_checkpoints=use_checkpoints,
+            thread_id=f"chainlit-{uuid.uuid4().hex[:10]}",
+        )
+
+        # If we returned from topic-level cache, there may be no progress events.
+        if not progress_display.updates:
+            await progress_display.update(
+                ProgressUpdate(
+                    stage=ResearchStage.COMPLETE,
+                    message="Loaded cached research result",
+                    progress_pct=100,
+                )
+            )
         
         search_results = final_state.get('search_results', [])
         key_findings = final_state.get('key_findings', [])
@@ -243,6 +259,15 @@ async def start():
     
     # Store session state
     cl.user_session.set("research_count", 0)
+
+    # Per-run settings (safe to toggle at runtime).
+    run_settings = await cl.ChatSettings(
+        [
+            Switch(id="use_cache", label="Use topic cache (faster repeats)", initial=True),
+            Switch(id="use_checkpoints", label="Use in-memory checkpoints", initial=False),
+        ]
+    ).send()
+    cl.user_session.set("run_settings", run_settings)
     
     # Create action buttons for quick start
     actions = [
@@ -287,7 +312,7 @@ I analyze your research topic, search authoritative sources across the web, eval
 | Step | Description |
 |------|-------------|
 | **Plan** | Create strategic research objectives and search queries |
-| **Search** | Query the web using DuckDuckGo for authoritative sources |
+| **Search** | Query the web using **{config.search_provider}** (and optionally local docs) |
 | **Extract** | Pull full content from high-credibility websites |
 | **Synthesize** | Analyze and cross-reference findings with AI |
 | **Write** | Generate a comprehensive, cited report |
@@ -360,6 +385,7 @@ async def on_show_history(action: cl.Action):
 @cl.action_callback("show_settings")
 async def on_show_settings(action: cl.Action):
     """Show current configuration."""
+    run_settings = cl.user_session.get("run_settings", {}) or {}
     content = f"""# Current Settings
 
 ## Model Configuration
@@ -369,12 +395,27 @@ async def on_show_settings(action: cl.Action):
 | Model | `{config.model_name}` |
 | Summarization Model | `{config.summarization_model}` |
 
+## Run Settings (Chainlit)
+| Setting | Value |
+|---------|-------|
+| Use Cache | `{bool(run_settings.get('use_cache', True))}` |
+| Use Checkpoints | `{bool(run_settings.get('use_checkpoints', False))}` |
+
 ## Search Configuration
 | Setting | Value |
 |---------|-------|
+| Provider | `{config.search_provider}` |
 | Max Search Queries | `{config.max_search_queries}` |
 | Results per Query | `{config.max_search_results_per_query}` |
 | Min Credibility Score | `{config.min_credibility_score}` |
+
+## Optional Features
+| Feature | Enabled | Details |
+|---------|---------|---------|
+| Deep Research | `{config.deep_research}` | depth=`{config.deep_max_depth}`, breadth=`{config.deep_breadth}` |
+| Local Docs | `{config.local_docs_enabled}` | path=`{config.doc_path or ''}` |
+| JS Extraction | `{config.js_extraction_enabled}` | min_chars=`{config.js_extraction_min_chars}` |
+| Langfuse | `{config.langfuse_enabled}` | host=`{config.langfuse_host or ''}` |
 
 ## Report Configuration
 | Setting | Value |
@@ -385,9 +426,15 @@ async def on_show_settings(action: cl.Action):
 
 ---
 
-*To change settings, modify your `.env` file and restart the app.*
+*Provider/search/deep/local-doc settings come from `.env` and require restart. Run settings (cache/checkpoints) can be toggled in the UI.*
 """
     await cl.Message(content=content).send()
+
+
+@cl.on_settings_update
+async def on_settings_update(settings: dict):
+    """Persist per-run settings in the user session."""
+    cl.user_session.set("run_settings", settings or {})
 
 
 @cl.action_callback("download_md")
@@ -415,6 +462,24 @@ async def on_download_txt(action: cl.Action):
     if file_path and Path(file_path).exists():
         elements = [cl.File(name=Path(file_path).name, path=file_path, display="inline")]
         await cl.Message(content="**Plain Text Report:**", elements=elements).send()
+
+
+@cl.action_callback("download_pdf")
+async def on_download_pdf(action: cl.Action):
+    """Handle PDF download."""
+    file_path = action.payload.get("path")
+    if file_path and Path(file_path).exists():
+        elements = [cl.File(name=Path(file_path).name, path=file_path, display="inline")]
+        await cl.Message(content="**PDF Report:**", elements=elements).send()
+
+
+@cl.action_callback("download_docx")
+async def on_download_docx(action: cl.Action):
+    """Handle DOCX download."""
+    file_path = action.payload.get("path")
+    if file_path and Path(file_path).exists():
+        elements = [cl.File(name=Path(file_path).name, path=file_path, display="inline")]
+        await cl.Message(content="**DOCX Report:**", elements=elements).send()
 
 
 @cl.action_callback("view_sources")
@@ -617,6 +682,17 @@ Please try again or simplify your research topic.
             base_path = output_file.with_suffix('')
             html_file = exporter.export(report, base_path, format='html')
             txt_file = exporter.export(report, base_path, format='txt')
+
+            pdf_file = None
+            docx_file = None
+            try:
+                pdf_file = exporter.export(report, base_path, format='pdf')
+            except Exception:
+                pdf_file = None
+            try:
+                docx_file = exporter.export(report, base_path, format='docx')
+            except Exception:
+                docx_file = None
             
             # Add to history
             history = ResearchHistory()
@@ -648,8 +724,31 @@ Please try again or simplify your research topic.
                     name="download_txt",
                     payload={"path": str(txt_file)},
                     label="Text"
-                )
+                ),
             ]
+
+            if pdf_file is not None:
+                download_actions.append(
+                    cl.Action(
+                        name="download_pdf",
+                        payload={"path": str(pdf_file)},
+                        label="PDF"
+                    )
+                )
+            if docx_file is not None:
+                download_actions.append(
+                    cl.Action(
+                        name="download_docx",
+                        payload={"path": str(docx_file)},
+                        label="DOCX"
+                    )
+                )
+
+            extra_rows = ""
+            if pdf_file is not None:
+                extra_rows += f"| PDF | `{pdf_file.name}` | {pdf_file.stat().st_size:,} bytes |\n"
+            if docx_file is not None:
+                extra_rows += f"| DOCX | `{docx_file.name}` | {docx_file.stat().st_size:,} bytes |\n"
             
             await cl.Message(
                 content=f"""## Download Report
@@ -661,6 +760,7 @@ Your report has been saved! Choose a format:
 | Markdown | `{filename}` | {output_file.stat().st_size:,} bytes |
 | HTML | `{html_file.name}` | {html_file.stat().st_size:,} bytes |
 | Plain Text | `{txt_file.name}` | {txt_file.stat().st_size:,} bytes |
+{extra_rows}
 """,
                 actions=download_actions
             ).send()

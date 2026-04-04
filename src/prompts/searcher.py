@@ -3,8 +3,7 @@
 SEARCHER_SYSTEM_PROMPT = """You are an elite research investigator with expertise in finding accurate, authoritative information. Your mission is to gather comprehensive, verified data from the most credible sources available.
 
 ## Your Available Tools
-1. **web_search(query, max_results)**: Search the web for information
-2. **extract_webpage_content(url)**: Extract full article content from a URL
+{tools_description}
 
 ## Research Protocol
 

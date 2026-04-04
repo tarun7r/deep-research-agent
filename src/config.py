@@ -1,7 +1,7 @@
 """Configuration management for the Deep Research Agent."""
 
+import logging
 import os
-from typing import Optional
 from pathlib import Path
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -17,7 +17,7 @@ class ResearchConfig(BaseModel):
     # Model Provider Configuration
     model_provider: str = Field(
         default=os.getenv("MODEL_PROVIDER", "gemini"),
-        description="Model provider: 'gemini', 'ollama', 'openai', or 'llamacpp'"
+        description="Model provider: 'gemini', 'ollama', 'openai', 'openrouter', 'litellm', or 'llamacpp'"
     )
     
     # API Keys
@@ -31,9 +31,41 @@ class ResearchConfig(BaseModel):
         description="OpenAI API key (required if using OpenAI)"
     )
 
+    # OpenRouter Configuration (OpenAI-compatible)
+    openrouter_api_key: str = Field(
+        default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""),
+        description="OpenRouter API key (required if using OpenRouter)"
+    )
+
+    openrouter_base_url: str = Field(
+        default_factory=lambda: os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api"),
+        description="OpenRouter base URL (OpenAI-compatible; default https://openrouter.ai/api)"
+    )
+
+    openrouter_site_url: str = Field(
+        default_factory=lambda: os.getenv("OPENROUTER_SITE_URL", ""),
+        description="Optional: your site URL for OpenRouter analytics (sent as HTTP-Referer)"
+    )
+
+    openrouter_app_name: str = Field(
+        default_factory=lambda: os.getenv("OPENROUTER_APP_NAME", "deep-research-agent"),
+        description="Optional: your app name for OpenRouter analytics (sent as X-Title)"
+    )
+
     openai_base_url: str = Field(
         default_factory=lambda: os.getenv("OPENAI_BASE_URL", "https://api.openai.com"),
         description="OpenAI API Base URL (optional if using OpenAI)"
+    )
+
+    # LiteLLM Configuration (OpenAI-compatible proxy)
+    litellm_base_url: str = Field(
+        default_factory=lambda: os.getenv("LITELLM_BASE_URL", ""),
+        description="LiteLLM proxy base URL (OpenAI-compatible). Example: http://localhost:4000"
+    )
+
+    litellm_api_key: str = Field(
+        default_factory=lambda: os.getenv("LITELLM_API_KEY", ""),
+        description="LiteLLM proxy API key (optional depending on your proxy setup)"
     )
     # Ollama Configuration
     ollama_base_url: str = Field(
@@ -69,6 +101,33 @@ class ResearchConfig(BaseModel):
         description="Tavily API key (required when SEARCH_PROVIDER=tavily)"
     )
 
+    # Local Documents (hybrid research)
+    local_docs_enabled: bool = Field(
+        default=os.getenv("LOCAL_DOCS_ENABLED", "false").lower() == "true",
+        description="Enable local document retrieval tool (uses DOC_PATH)"
+    )
+
+    doc_path: str = Field(
+        default_factory=lambda: os.getenv("DOC_PATH", ""),
+        description="Path to folder containing local documents for hybrid research"
+    )
+
+    # JS-rendered extraction (optional)
+    js_extraction_enabled: bool = Field(
+        default=os.getenv("JS_EXTRACTION_ENABLED", "false").lower() == "true",
+        description="Enable JS-rendered extraction fallback via Playwright (optional dependency)"
+    )
+
+    js_extraction_min_chars: int = Field(
+        default=int(os.getenv("JS_EXTRACTION_MIN_CHARS", "500")),
+        description="If extracted text is shorter than this, attempt JS-rendered fallback"
+    )
+
+    js_extraction_timeout: int = Field(
+        default=int(os.getenv("JS_EXTRACTION_TIMEOUT", "20")),
+        description="Timeout seconds for JS-rendered extraction"
+    )
+
     # Search Configuration
     max_search_queries: int = Field(
         default=int(os.getenv("MAX_SEARCH_QUERIES", "3")),
@@ -83,6 +142,32 @@ class ResearchConfig(BaseModel):
     max_parallel_searches: int = Field(
         default=int(os.getenv("MAX_PARALLEL_SEARCHES", "3")),
         description="Maximum number of parallel search operations"
+    )
+
+    # Deep Research (recursive) Configuration
+    deep_research: bool = Field(
+        default=os.getenv("DEEP_RESEARCH", "false").lower() == "true",
+        description="Enable recursive deep research mode (multi-round query expansion)"
+    )
+
+    deep_max_depth: int = Field(
+        default=int(os.getenv("DEEP_MAX_DEPTH", "2")),
+        description="Maximum recursion depth for deep research"
+    )
+
+    deep_breadth: int = Field(
+        default=int(os.getenv("DEEP_BREADTH", "3")),
+        description="How many follow-up queries to generate per depth"
+    )
+
+    deep_max_total_queries: int = Field(
+        default=int(os.getenv("DEEP_MAX_TOTAL_QUERIES", "12")),
+        description="Hard cap on total queries executed in deep mode"
+    )
+
+    deep_max_total_results: int = Field(
+        default=int(os.getenv("DEEP_MAX_TOTAL_RESULTS", "60")),
+        description="Hard cap on total results kept in deep mode"
     )
     
     # Credibility Configuration
@@ -118,6 +203,27 @@ class ResearchConfig(BaseModel):
         default=os.getenv("LANGCHAIN_PROJECT", "deep-research-agent"),
         description="LangSmith project name"
     )
+
+    # Langfuse Configuration (OSS observability)
+    langfuse_enabled: bool = Field(
+        default=os.getenv("LANGFUSE_ENABLED", "false").lower() == "true",
+        description="Enable Langfuse tracing via LangChain callback handler"
+    )
+
+    langfuse_public_key: str = Field(
+        default_factory=lambda: os.getenv("LANGFUSE_PUBLIC_KEY", ""),
+        description="Langfuse public key (required if LANGFUSE_ENABLED=true)"
+    )
+
+    langfuse_secret_key: str = Field(
+        default_factory=lambda: os.getenv("LANGFUSE_SECRET_KEY", ""),
+        description="Langfuse secret key (required if LANGFUSE_ENABLED=true)"
+    )
+
+    langfuse_host: str = Field(
+        default_factory=lambda: os.getenv("LANGFUSE_HOST", ""),
+        description="Langfuse host URL (optional; useful for self-hosted Langfuse)"
+    )
     
     def validate_config(self) -> bool:
         """Validate that required configuration is present."""
@@ -140,6 +246,16 @@ class ResearchConfig(BaseModel):
                 raise ValueError(
                     "OPENAI_API_KEY is required when using OpenAI. Get one from https://platform.openai.com/api-keys"
                 )
+        elif self.model_provider == "openrouter":
+            if not self.openrouter_api_key:
+                raise ValueError(
+                    "OPENROUTER_API_KEY is required when using OpenRouter. Get one from https://openrouter.ai/keys"
+                )
+        elif self.model_provider == "litellm":
+            if not self.litellm_base_url:
+                raise ValueError(
+                    "LITELLM_BASE_URL is required when MODEL_PROVIDER=litellm (OpenAI-compatible LiteLLM proxy)."
+                )
         elif self.model_provider == "llamacpp":
             # Validate llama.cpp server is accessible
             try:
@@ -150,8 +266,29 @@ class ResearchConfig(BaseModel):
             except requests.exceptions.RequestException as e:
                 raise ValueError(f"Cannot connect to llama.cpp server at {self.llamacpp_base_url}: {e}")
         else:
-            raise ValueError(f"Invalid MODEL_PROVIDER: {self.model_provider}. Must be 'gemini', 'ollama', 'openai', or 'llamacpp'")
+            raise ValueError(
+                f"Invalid MODEL_PROVIDER: {self.model_provider}. Must be 'gemini', 'ollama', 'openai', 'openrouter', 'litellm', or 'llamacpp'"
+            )
         
+        if self.langfuse_enabled:
+            if not self.langfuse_public_key or not self.langfuse_secret_key:
+                raise ValueError(
+                    "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required when LANGFUSE_ENABLED=true"
+                )
+
+        if self.deep_research:
+            if self.deep_max_depth < 1:
+                raise ValueError("DEEP_MAX_DEPTH must be >= 1 when DEEP_RESEARCH=true")
+            if self.deep_breadth < 1:
+                raise ValueError("DEEP_BREADTH must be >= 1 when DEEP_RESEARCH=true")
+            if self.deep_max_total_queries < 1:
+                raise ValueError("DEEP_MAX_TOTAL_QUERIES must be >= 1 when DEEP_RESEARCH=true")
+            if self.deep_max_total_results < 1:
+                raise ValueError("DEEP_MAX_TOTAL_RESULTS must be >= 1 when DEEP_RESEARCH=true")
+
+        if self.local_docs_enabled and not self.doc_path:
+            raise ValueError("DOC_PATH is required when LOCAL_DOCS_ENABLED=true")
+
         return True
 
 
@@ -159,7 +296,6 @@ class ResearchConfig(BaseModel):
 config = ResearchConfig()
 
 # Log configuration for debugging
-import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.info(f"Configuration loaded - MAX_SEARCH_QUERIES: {config.max_search_queries}, "

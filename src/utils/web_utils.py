@@ -3,9 +3,8 @@
 import asyncio
 import re
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from urllib.parse import urlparse
 import logging
 from enum import Enum
@@ -14,9 +13,13 @@ from abc import ABC, abstractmethod
 import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
-from tavily import AsyncTavilyClient
+try:
+    from tavily import AsyncTavilyClient
+except ModuleNotFoundError:  # optional dependency
+    AsyncTavilyClient = None
 
 from src.state import SearchResult
+from src.config import config
 from src.exceptions import (
     SearchError,
     RateLimitError,
@@ -283,6 +286,15 @@ class TavilyProvider(SearchProvider):
     """Tavily search provider with circuit breaker."""
 
     def __init__(self, api_key: Optional[str] = None, max_results: int = 5):
+        if AsyncTavilyClient is None:
+            raise SearchError(
+                "Tavily support requires the optional dependency 'tavily-python'. "
+                "Install it (e.g., pip install tavily-python) or set SEARCH_PROVIDER=duckduckgo."
+            )
+        if not api_key:
+            raise SearchError(
+                "Tavily search requires a TAVILY_API_KEY. Set it or switch SEARCH_PROVIDER=duckduckgo."
+            )
         self.max_results = max_results
         self.client = AsyncTavilyClient(api_key=api_key)
         self.circuit_breaker = CircuitBreaker(
@@ -437,7 +449,7 @@ class ContentExtractor:
             return None
         
         if not self.circuit_breaker.can_execute():
-            logger.warning(f"Circuit breaker open for content extraction")
+            logger.warning("Circuit breaker open for content extraction")
             return None
         
         try:
@@ -454,6 +466,18 @@ class ContentExtractor:
             
             html_content = response.text
             extracted = self._parse_html(html_content)
+
+            if (
+                config.js_extraction_enabled
+                and (not extracted or len(extracted) < max(0, int(config.js_extraction_min_chars or 0)))
+            ):
+                rendered = await self._fetch_rendered_html_async(url)
+                if rendered:
+                    rendered_extracted = self._parse_html(rendered)
+                    if rendered_extracted and (
+                        not extracted or len(rendered_extracted) > len(extracted)
+                    ):
+                        extracted = rendered_extracted
             
             self.circuit_breaker.record_success()
             
@@ -476,6 +500,41 @@ class ContentExtractor:
         except Exception as e:
             self.circuit_breaker.record_failure()
             logger.warning(f"Failed to extract content from {url}: {str(e)}")
+            return None
+
+    async def _fetch_rendered_html_async(self, url: str) -> Optional[str]:
+        """Fetch HTML using a JS-capable renderer (Playwright) when enabled.
+
+        This is an optional fallback and requires the `playwright` package and
+        installed browsers (via `playwright install`).
+        """
+        try:
+            from playwright.async_api import async_playwright  # type: ignore
+        except Exception as e:
+            logger.debug(f"Playwright not available for JS extraction: {e}")
+            return None
+
+        timeout_ms = int(max(1, int(config.js_extraction_timeout or 20))) * 1000
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                try:
+                    context = await browser.new_context(
+                        user_agent=(
+                            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                            'AppleWebKit/537.36 (KHTML, like Gecko) '
+                            'Chrome/120.0.0.0 Safari/537.36'
+                        )
+                    )
+                    page = await context.new_page()
+                    await page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                    html = await page.content()
+                    await context.close()
+                    return html
+                finally:
+                    await browser.close()
+        except Exception as e:
+            logger.debug(f"JS-rendered fetch failed for {url}: {e}")
             return None
     
     def _parse_html(self, html: str) -> Optional[str]:

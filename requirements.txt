@@ -30,6 +30,10 @@ markdown>=3.7
 # Web Interface
 chainlit>=1.0.0
 
+# API Server (optional)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
 # Async Support
 aiohttp>=3.11.11
 

@@ -1,6 +1,6 @@
 """Callback system for real-time progress updates in the research workflow."""
 
-import asyncio
+import contextvars
 from typing import Callable, Optional, Dict, Any, List
 from enum import Enum
 from dataclasses import dataclass, field
@@ -8,6 +8,12 @@ from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# If set, emitted ProgressUpdates will include metadata["job_id"].
+CURRENT_JOB_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "CURRENT_JOB_ID", default=None
+)
 
 
 class ResearchStage(Enum):
@@ -124,6 +130,9 @@ async def emit_progress(
     **metadata
 ):
     """Emit a progress update."""
+    job_id = CURRENT_JOB_ID.get()
+    if job_id and "job_id" not in metadata:
+        metadata["job_id"] = job_id
     update = ProgressUpdate(
         stage=stage,
         message=message,
@@ -192,7 +201,7 @@ async def emit_extraction_start(url: str, current: int, total: int):
     try:
         from urllib.parse import urlparse
         domain = urlparse(url).netloc
-    except:
+    except Exception:
         domain = url[:40]
     
     await emit_progress(
@@ -207,7 +216,7 @@ async def emit_extraction_complete(num_extracted: int, total_chars: int):
     """Emit extraction completion."""
     await emit_progress(
         ResearchStage.EXTRACTING,
-        f"Content extraction complete",
+        "Content extraction complete",
         f"{num_extracted} pages, {total_chars:,} characters extracted",
         progress_pct=65
     )

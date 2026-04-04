@@ -6,7 +6,7 @@
 
 A production-ready multi-agent autonomous research system built with LangGraph and LangChain. Four specialized agents collaborate to conduct comprehensive research on any topic, generating detailed citation-backed reports with credibility scoring and quality metrics.
 
-**Supports:** Local models (Ollama, llama.cpp) and Cloud APIs (Google Gemini, OpenAI)
+**Supports:** Local models (Ollama, llama.cpp) and Cloud / gateway APIs (Google Gemini, OpenAI, OpenRouter, LiteLLM proxy)
 
 ---
 
@@ -47,6 +47,9 @@ https://github.com/user-attachments/assets/df8404c6-7423-4a49-864a-bd4d59885c1b
 | **Multi-Format Export** | Reports in Markdown, HTML, and plain text |
 | **LLM Usage Tracking** | Real-time monitoring of API calls, tokens, and costs |
 | **Research Caching** | 7-day TTL file-based caching with MD5 topic hashing |
+| **Tool Result Cache** | Persistent caching for web search + content extraction |
+| **Deep Research Mode** | Multi-round query expansion with hard budgets/caps |
+| **Hybrid Local + Web Research** | Optional local document search via `DOC_PATH` |
 | **Web Interface** | Interactive Chainlit UI with real-time progress |
 
 ### Production-Ready Features
@@ -58,7 +61,7 @@ https://github.com/user-attachments/assets/df8404c6-7423-4a49-864a-bd4d59885c1b
 | **Checkpointing** | Workflow state persistence for crash recovery |
 | **Typed Exceptions** | Domain-specific error handling for better debugging |
 | **Dependency Injection** | Testable agent architecture with injectable LLMs |
-| **Search Provider Abstraction** | Extensible search backend (DuckDuckGo, with easy addition of others) |
+| **Search Provider Abstraction** | Extensible search backend (DuckDuckGo, Tavily) |
 
 ---
 
@@ -171,6 +174,17 @@ MODEL_NAME=gemini-2.5-flash
 MODEL_PROVIDER=openai
 OPENAI_API_KEY=your_api_key_here
 MODEL_NAME=gpt-4o-mini
+
+# OpenRouter (OpenAI-compatible)
+MODEL_PROVIDER=openrouter
+OPENROUTER_API_KEY=your_api_key_here
+MODEL_NAME=openai/gpt-4o-mini
+
+# LiteLLM Proxy (OpenAI-compatible)
+MODEL_PROVIDER=litellm
+LITELLM_BASE_URL=http://localhost:4000
+LITELLM_API_KEY=your_api_key_here  # optional depending on your proxy
+MODEL_NAME=gpt-4o-mini
 ```
 
 ---
@@ -193,11 +207,45 @@ python main.py "Impact of quantum computing on cryptography"
 chainlit run app.py --host 127.0.0.1 --port 8000
 ```
 
+Chainlit supports per-run toggles (no restart required):
+- **Use topic cache** (faster repeat runs)
+- **Use in-memory checkpoints** (LangGraph thread checkpoints)
+
+Most other options (provider, search backend, deep research, local docs, JS extraction) come from `.env` and require a restart.
+
+### API Server (FastAPI + SSE)
+
+```bash
+uvicorn api.server:app --host 127.0.0.1 --port 8081 --reload
+```
+
+Start a job:
+
+```bash
+curl -s -X POST http://127.0.0.1:8081/research \
+    -H 'Content-Type: application/json' \
+    -d '{"topic":"Impact of quantum computing on cryptography"}'
+```
+
+Stream progress (SSE):
+
+```bash
+curl -N http://127.0.0.1:8081/research/<job_id>/events
+```
+
+Fetch status/result:
+
+```bash
+curl -s http://127.0.0.1:8081/research/<job_id>
+```
+
 Features:
 - Real-time progress with stage indicators
 - Quality metrics and LLM usage statistics
 - Multiple format downloads (MD, HTML, TXT)
 - Research history tracking
+
+Note: Web extraction targets HTML pages. Direct PDF URLs are intentionally skipped during extraction (you’ll see an "Unsupported content type: application/pdf" log). If you want PDFs included, download them into `DOC_PATH` and enable local docs indexing.
 
 ### Programmatic API
 
@@ -247,7 +295,7 @@ state = await resume_research(thread_id="my-research-001")
 # =============================================================================
 # MODEL PROVIDER (required)
 # =============================================================================
-MODEL_PROVIDER=gemini              # Options: ollama, llamacpp, gemini, openai
+MODEL_PROVIDER=gemini              # Options: ollama, llamacpp, gemini, openai, openrouter, litellm
 
 # =============================================================================
 # PROVIDER-SPECIFIC SETTINGS
@@ -273,6 +321,18 @@ OPENAI_BASE_URL=https://api.openai.com  # Optional
 MODEL_NAME=gpt-4o-mini
 SUMMARIZATION_MODEL=gpt-4o-mini
 
+# OpenRouter (OpenAI-compatible)
+OPENROUTER_API_KEY=your_api_key_here
+OPENROUTER_BASE_URL=https://openrouter.ai/api  # Optional
+OPENROUTER_SITE_URL=                           # Optional (sent as HTTP-Referer)
+OPENROUTER_APP_NAME=deep-research-agent        # Optional (sent as X-Title)
+MODEL_NAME=openai/gpt-4o-mini
+
+# LiteLLM Proxy (OpenAI-compatible)
+LITELLM_BASE_URL=http://localhost:4000
+LITELLM_API_KEY=your_api_key_here              # Optional depending on your proxy
+MODEL_NAME=gpt-4o-mini
+
 # =============================================================================
 # SEARCH SETTINGS (optional)
 # =============================================================================
@@ -280,11 +340,48 @@ MAX_SEARCH_QUERIES=3               # Number of search queries
 MAX_SEARCH_RESULTS_PER_QUERY=3     # Results per query
 MIN_CREDIBILITY_SCORE=40           # Filter threshold (0-100)
 
+# Search providers
+SEARCH_PROVIDER=duckduckgo         # Options: duckduckgo, tavily
+TAVILY_API_KEY=                    # Required if using Tavily
+
+# Hybrid Local Docs (optional)
+LOCAL_DOCS_ENABLED=false
+DOC_PATH=./docs
+
+# Deep Research Mode (optional)
+DEEP_RESEARCH=false
+DEEP_MAX_DEPTH=2
+DEEP_BREADTH=3
+DEEP_MAX_TOTAL_QUERIES=12
+DEEP_MAX_TOTAL_RESULTS=60
+
+# JS-rendered extraction fallback (optional; requires Playwright)
+JS_EXTRACTION_ENABLED=false
+JS_EXTRACTION_MIN_CHARS=500
+JS_EXTRACTION_TIMEOUT=20
+
+# Optional dependencies
+# - JS extraction: pip install playwright && playwright install chromium
+# - PDF export: pip install fpdf2
+# - DOCX export: pip install python-docx
+
 # =============================================================================
 # REPORT SETTINGS (optional)
 # =============================================================================
 MAX_REPORT_SECTIONS=8              # Maximum sections in report
 CITATION_STYLE=apa                 # Options: apa, mla, chicago, ieee
+
+# =============================================================================
+# OBSERVABILITY (optional)
+# =============================================================================
+LANGCHAIN_TRACING_V2=false
+LANGCHAIN_PROJECT=deep-research-agent
+
+# Langfuse (optional; requires `pip install langfuse`)
+LANGFUSE_ENABLED=false
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_HOST=
 ```
 
 ### Model Provider Comparison
@@ -295,6 +392,8 @@ CITATION_STYLE=apa                 # Options: apa, mla, chicago, ieee
 | **llama.cpp** | Free | Local | Fastest | Manual |
 | **Gemini** | Free tier | Cloud | Fast | API key |
 | **OpenAI** | Pay-per-use | Cloud | Fast | API key |
+| **OpenRouter** | Pay-per-use | Cloud | Fast | API key |
+| **LiteLLM Proxy** | Depends | Depends | Depends | Proxy |
 
 ---
 
@@ -307,7 +406,10 @@ deep-research-agent/
 │   ├── config.py             # Configuration management (Pydantic)
 │   ├── state.py              # State models (ResearchState, etc.)
 │   ├── agents.py             # Agent implementations with DI
+│   ├── deep_research.py       # Recursive deep research node
 │   ├── graph.py              # LangGraph workflow + checkpointing
+│   ├── local_docs.py          # Local document index + retrieval
+│   ├── observability/         # Tracing integrations (optional)
 │   ├── callbacks.py          # Progress callback system
 │   ├── llm_tracker.py        # Token and cost tracking
 │   ├── exceptions.py         # Typed domain exceptions
@@ -546,6 +648,7 @@ Built with:
 - [Chainlit](https://github.com/Chainlit/chainlit) - Web interface
 - [httpx](https://www.python-httpx.org/) - Async HTTP client
 - [DuckDuckGo](https://duckduckgo.com/) - Web search
+- [Playwright](https://playwright.dev/python/) - Optional JS-rendered extraction
 
 Supports:
 - [Ollama](https://ollama.com/) & [llama.cpp](https://github.com/ggerganov/llama.cpp) - Local models

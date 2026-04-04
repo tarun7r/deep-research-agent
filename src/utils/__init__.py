@@ -24,10 +24,14 @@ from src.utils.history import ResearchHistory
 
 __all__ = [
     # LLM Tools
-    'research_tools',
     'get_research_tools',
     'web_search',
     'extract_webpage_content',
+    'analyze_research_topic',
+    'extract_insights_from_text',
+    'format_citation',
+    'validate_section_quality',
+    'all_research_tools',
     # Web Utils
     'WebSearchTool',
     'ContentExtractor',

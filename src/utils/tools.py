@@ -2,8 +2,9 @@
 
 from typing import List, Optional, Dict
 from langchain_core.tools import tool
+import asyncio
 import logging
-import json
+import re
 
 from src.utils.web_utils import (
     WebSearchTool as WebSearchImpl,
@@ -11,9 +12,10 @@ from src.utils.web_utils import (
     DuckDuckGoProvider,
     TavilyProvider,
 )
-from src.state import SearchResult
 from src.utils.citations import CitationFormatter
+from src.utils.cache import ToolCache
 from src.config import config
+from src.local_docs import get_default_index
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,6 +37,11 @@ _search_impl = WebSearchImpl(
 )
 _extractor_impl = ContentExtractorImpl(timeout=10)
 _citation_formatter = CitationFormatter()
+_tool_cache = ToolCache()
+
+_MAX_TOOL_CONCURRENCY = max(1, int(getattr(config, "max_parallel_searches", 3) or 1))
+_search_semaphore = asyncio.Semaphore(_MAX_TOOL_CONCURRENCY)
+_extract_semaphore = asyncio.Semaphore(_MAX_TOOL_CONCURRENCY)
 
 
 @tool
@@ -106,15 +113,20 @@ async def web_search(query: str, max_results: int = None) -> List[dict]:
         # Use config value if not specified
         if max_results is None:
             max_results = config.max_search_results_per_query
+
+        cached = _tool_cache.get_search(config.search_provider, query, int(max_results))
+        if isinstance(cached, list) and cached:
+            return cached
             
         # Update max_results if different
         if _search_impl.max_results != max_results:
             _search_impl.max_results = max_results
             
-        results = await _search_impl.search_async(query)
+        async with _search_semaphore:
+            results = await _search_impl.search_async(query)
         
         # Convert SearchResult objects to dicts for LLM consumption
-        return [
+        payload = [
             {
                 "query": r.query,
                 "title": r.title,
@@ -123,6 +135,11 @@ async def web_search(query: str, max_results: int = None) -> List[dict]:
             }
             for r in results
         ]
+
+        if payload:
+            _tool_cache.set_search(config.search_provider, query, int(max_results), payload)
+
+        return payload
     except Exception as e:
         logger.error(f"Web search tool error: {str(e)}")
         return []
@@ -212,11 +229,43 @@ async def extract_webpage_content(url: str) -> Optional[str]:
         4. Cross-reference extracted content for verification
     """
     try:
-        content = await _extractor_impl.extract_content_async(url)
+        cached = _tool_cache.get_content(url)
+        if cached is not None:
+            return cached
+
+        async with _extract_semaphore:
+            content = await _extractor_impl.extract_content_async(url)
+
+        # Cache both successes and failures (None) to reduce repeated timeouts/403s.
+        _tool_cache.set_content(url, content)
         return content
     except Exception as e:
         logger.error(f"Content extraction tool error: {str(e)}")
         return None
+
+
+@tool
+def local_search(query: str, max_results: int = 5) -> List[dict]:
+    """Search local documents (from DOC_PATH) for relevant content.
+
+    Enabled only when LOCAL_DOCS_ENABLED=true and DOC_PATH points to a folder.
+
+    Returns a list of chunk matches with:
+    - title: document title
+    - path: relative path under DOC_PATH
+    - snippet: preview text
+    - content: chunk text
+    - score: simple relevance score
+    """
+    index = get_default_index()
+    if index is None:
+        return []
+    index.load_or_build()
+    try:
+        k = max(1, int(max_results or 5))
+    except Exception:
+        k = 5
+    return index.search(query, k=k)
 
 
 @tool
@@ -313,7 +362,7 @@ def analyze_research_topic(topic: str) -> Dict[str, List[str]]:
     
     questions = [
         f"What is the current state of {topic}?",
-        f"What are the key benefits and challenges?",
+        "What are the key benefits and challenges?",
         f"What does the future hold for {topic}?"
     ]
     
@@ -565,8 +614,10 @@ def validate_section_quality(section_text: str, min_words: int = 150) -> Dict[st
     logger.info("Validating section quality")
     
     word_count = len(section_text.split())
-    has_citations = '[' in section_text and ']' in section_text
-    has_headers = '#' in section_text
+    citation_numbers = re.findall(r"\[(\d+)\]", section_text)
+    has_citations = len(citation_numbers) > 0
+    citation_count = len(citation_numbers)
+    has_headers = bool(re.search(r"^#{1,6}\s+", section_text, flags=re.MULTILINE))
     
     issues = []
     suggestions = []
@@ -578,6 +629,8 @@ def validate_section_quality(section_text: str, min_words: int = 150) -> Dict[st
     if not has_citations:
         issues.append("No citations found")
         suggestions.append("Add inline citations [1], [2] to support claims")
+    elif citation_count < 2 and word_count >= max(min_words, 200):
+        suggestions.append("Consider adding more citations to support key claims")
     
     if not has_headers and word_count > 300:
         suggestions.append("Consider adding subheadings for better structure")
@@ -588,6 +641,7 @@ def validate_section_quality(section_text: str, min_words: int = 150) -> Dict[st
         "is_valid": is_valid,
         "word_count": word_count,
         "has_citations": has_citations,
+        "citation_count": citation_count,
         "issues": issues,
         "suggestions": suggestions
     }
@@ -598,6 +652,9 @@ research_search_tools = [
     web_search,
     extract_webpage_content
 ]
+
+if config.local_docs_enabled:
+    research_search_tools = [*research_search_tools, local_search]
 
 synthesis_tools = [
     extract_insights_from_text
@@ -616,6 +673,7 @@ planning_tools = [
 all_research_tools = [
     web_search,
     extract_webpage_content,
+    local_search,
     analyze_research_topic,
     extract_insights_from_text,
     format_citation,

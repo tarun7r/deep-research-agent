@@ -1,6 +1,6 @@
 """Citation formatting utilities for different citation styles."""
 
-from typing import List, Dict
+from typing import List
 from datetime import datetime
 import re
 import logging

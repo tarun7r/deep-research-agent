@@ -1,9 +1,8 @@
 """State management for the Deep Research Agent."""
 
-from typing import Annotated, List, Dict, Optional, Literal
-from pydantic import BaseModel, Field
-from langgraph.graph import MessagesState
-from langchain_core.messages import BaseMessage
+from typing import List, Dict, Optional, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SearchQuery(BaseModel):
@@ -39,6 +38,8 @@ class ResearchPlan(BaseModel):
 
 class ResearchState(BaseModel):
     """State for the research workflow."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     
     # User input
     research_topic: str = Field(description="The topic to research")
@@ -89,6 +90,5 @@ class ResearchState(BaseModel):
     total_output_tokens: int = Field(default=0, description="Total output tokens generated")
     llm_call_details: List[Dict] = Field(default_factory=list, description="Details of each LLM call")
     
-    class Config:
-        arbitrary_types_allowed = True
+
 

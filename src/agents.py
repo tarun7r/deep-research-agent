@@ -1,11 +1,12 @@
 """Agent nodes for the research workflow with dependency injection."""
 
 import asyncio
-from typing import List, Optional, Dict, Any, Protocol
+from typing import List, Optional, Dict, Any
 import logging
 import time
 import json
 import re
+import uuid
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
@@ -13,7 +14,13 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.language_models import BaseChatModel
-from langchain.agents import create_agent
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from src.state import ResearchState, ResearchPlan, SearchQuery, ReportSection, SearchResult
 from src.utils.tools import get_research_tools
@@ -21,7 +28,7 @@ from src.config import config
 from src.utils.credibility import CredibilityScorer
 from src.utils.citations import CitationFormatter
 from src.llm_tracker import estimate_tokens
-from src.exceptions import PlanningError, SearchError, SynthesisError, ReportGenerationError
+from src.exceptions import PlanningError, SearchError, ReportGenerationError
 from src.prompts import (
     PLANNER_SYSTEM_PROMPT, PLANNER_USER_TEMPLATE,
     SEARCHER_SYSTEM_PROMPT, SEARCHER_USER_TEMPLATE,
@@ -30,12 +37,13 @@ from src.prompts import (
 )
 from src.callbacks import (
     emit_planning_start, emit_planning_complete,
-    emit_search_start, emit_search_results, 
-    emit_extraction_start, emit_extraction_complete,
-    emit_synthesis_start, emit_synthesis_progress, emit_synthesis_complete,
+    emit_search_start,
+    emit_extraction_complete,
+    emit_synthesis_start, emit_synthesis_complete,
     emit_writing_start, emit_writing_section, emit_writing_complete,
     emit_error
 )
+from src.observability import runnable_config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -79,6 +87,31 @@ def get_llm(
             api_key=config.openai_api_key,
             temperature=temperature
         )
+    elif provider == "openrouter":
+        logger.info(f"Using OpenRouter model: {model_name}")
+        # OpenRouter is OpenAI-compatible. They recommend sending HTTP-Referer and X-Title.
+        headers = {
+            "X-Title": config.openrouter_app_name or "deep-research-agent",
+        }
+        if config.openrouter_site_url:
+            headers["HTTP-Referer"] = config.openrouter_site_url
+
+        return ChatOpenAI(
+            model=model_name,
+            base_url=f"{config.openrouter_base_url.rstrip('/')}/v1",
+            api_key=config.openrouter_api_key,
+            temperature=temperature,
+            default_headers=headers,
+        )
+    elif provider == "litellm":
+        logger.info(f"Using LiteLLM proxy model: {model_name}")
+        # LiteLLM proxy is OpenAI-compatible; point at its base URL.
+        return ChatOpenAI(
+            model=model_name,
+            base_url=f"{config.litellm_base_url.rstrip('/')}/v1",
+            api_key=config.litellm_api_key or "not-needed",
+            temperature=temperature,
+        )
     elif provider == "llamacpp":
         logger.info(f"Using llama.cpp server model: {model_name}")
         return ChatOpenAI(
@@ -94,6 +127,110 @@ def get_llm(
             google_api_key=config.google_api_key,
             temperature=temperature
         )
+
+
+async def _ainvoke_with_optional_config(runnable: Any, inp: Any, invoke_cfg: Optional[dict[str, Any]]):
+    if invoke_cfg is None:
+        return await runnable.ainvoke(inp)
+    try:
+        return await runnable.ainvoke(inp, config=invoke_cfg)
+    except TypeError:
+        return await runnable.ainvoke(inp)
+
+
+def _tool_map(tools: list[Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for t in tools:
+        name = getattr(t, "name", None)
+        if isinstance(name, str) and name:
+            out[name] = t
+    return out
+
+
+async def _run_tool_calling_loop(
+    *,
+    llm: BaseChatModel,
+    tools: list[Any],
+    system_prompt: Optional[str],
+    user_message: str,
+    invoke_cfg: Optional[dict[str, Any]],
+    max_turns: int = 12,
+) -> list[BaseMessage]:
+    """Minimal tool-calling loop.
+
+    Avoids importing langgraph's prebuilt agent utilities (which currently emit a
+    deprecation warning for AgentStatePydantic).
+    """
+
+    try:
+        llm_with_tools = llm.bind_tools(tools)
+    except Exception:
+        llm_with_tools = llm
+
+    messages: list[BaseMessage] = []
+    if system_prompt:
+        messages.append(SystemMessage(content=system_prompt))
+    messages.append(HumanMessage(content=user_message))
+
+    tools_by_name = _tool_map(tools)
+
+    for _ in range(max(1, int(max_turns or 1))):
+        ai_msg = await _ainvoke_with_optional_config(llm_with_tools, messages, invoke_cfg)
+        if not isinstance(ai_msg, AIMessage):
+            ai_msg = AIMessage(content=str(ai_msg))
+        messages.append(ai_msg)
+
+        tool_calls = getattr(ai_msg, "tool_calls", None) or []
+        if not isinstance(tool_calls, list) or not tool_calls:
+            break
+
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+
+            name = (tc.get("name") or "").strip()
+            tool_call_id = tc.get("id") or tc.get("tool_call_id") or uuid.uuid4().hex
+            args = tc.get("args")
+            if args is None:
+                args = {}
+
+            tool = tools_by_name.get(name)
+            if tool is None:
+                messages.append(
+                    ToolMessage(
+                        content=f"Unknown tool: {name}",
+                        tool_call_id=str(tool_call_id),
+                        name=name or None,
+                        status="error",
+                    )
+                )
+                continue
+
+            try:
+                out = await _ainvoke_with_optional_config(tool, args, invoke_cfg)
+                if isinstance(out, (dict, list)):
+                    content = json.dumps(out, ensure_ascii=False)
+                else:
+                    content = str(out)
+                messages.append(
+                    ToolMessage(
+                        content=content,
+                        tool_call_id=str(tool_call_id),
+                        name=name or None,
+                        status="success",
+                    )
+                )
+            except Exception as e:
+                messages.append(
+                    ToolMessage(
+                        content=f"Tool error in {name}: {e}",
+                        tool_call_id=str(tool_call_id),
+                        name=name or None,
+                        status="error",
+                    )
+                )
+
+    return messages
 
 
 # =============================================================================
@@ -134,11 +271,12 @@ class ResearchPlanner:
                 input_text = f"{state.research_topic} {config.max_search_queries} {config.max_report_sections}"
                 input_tokens = estimate_tokens(input_text)
                 
+                invoke_cfg = runnable_config(tags=["planner"], metadata={"topic": state.research_topic})
                 result = await chain.ainvoke({
                     "topic": state.research_topic,
                     "max_queries": config.max_search_queries,
                     "max_sections": config.max_report_sections
-                })
+                }, config=invoke_cfg)
                 
                 duration = time.time() - start_time
                 output_tokens = estimate_tokens(str(result))
@@ -238,17 +376,22 @@ class ResearchSearcher:
         max_searches = config.max_search_queries
         max_results_per_search = config.max_search_results_per_query
         expected_total_results = max_searches * max_results_per_search
+
+        tool_lines = [
+            "1. **web_search(query, max_results)**: Search the web for information",
+            "2. **extract_webpage_content(url)**: Extract full article content from a URL",
+        ]
+        if config.local_docs_enabled:
+            tool_lines.append(
+                "3. **local_search(query, max_results)**: Search local documents from DOC_PATH for relevant content"
+            )
+        tools_description = "\n".join(tool_lines)
         
         system_prompt = SEARCHER_SYSTEM_PROMPT.format(
             max_searches=max_searches,
             max_results_per_search=max_results_per_search,
-            expected_total_results=expected_total_results
-        )
-        
-        agent_graph = create_agent(
-            self.llm,
-            self.tools,
-            system_prompt=system_prompt
+            expected_total_results=expected_total_results,
+            tools_description=tools_description,
         )
         
         for attempt in range(self.max_retries):
@@ -269,14 +412,18 @@ class ResearchSearcher:
                 )
                 
                 input_tokens = estimate_tokens(input_message)
-                
-                result = await agent_graph.ainvoke({
-                    "messages": [{"role": "user", "content": input_message}]
-                })
+
+                invoke_cfg = runnable_config(tags=["searcher"], metadata={"topic": state.research_topic})
+                messages = await _run_tool_calling_loop(
+                    llm=self.llm,
+                    tools=self.tools,
+                    system_prompt=system_prompt,
+                    user_message=input_message,
+                    invoke_cfg=invoke_cfg,
+                )
                 
                 duration = time.time() - start_time
                 
-                messages = result.get('messages', [])
                 output_text = ""
                 if messages:
                     output_text = str(messages[-1].content if hasattr(messages[-1], 'content') else str(messages[-1]))
@@ -420,12 +567,6 @@ class ResearchSynthesizer:
         
         await emit_synthesis_start(len(state.search_results))
         
-        agent_graph = create_agent(
-            self.llm,
-            self.tools,
-            system_prompt=SYNTHESIZER_SYSTEM_PROMPT
-        )
-        
         max_results = 20
         
         for attempt in range(self.max_retries):
@@ -445,14 +586,18 @@ class ResearchSynthesizer:
                 )
                 
                 input_tokens = estimate_tokens(input_message)
-                
-                result = await agent_graph.ainvoke({
-                    "messages": [{"role": "user", "content": input_message}]
-                })
+
+                invoke_cfg = runnable_config(tags=["synthesizer"], metadata={"topic": state.research_topic})
+                messages = await _run_tool_calling_loop(
+                    llm=self.llm,
+                    tools=self.tools,
+                    system_prompt=SYNTHESIZER_SYSTEM_PROMPT,
+                    user_message=input_message,
+                    invoke_cfg=invoke_cfg,
+                )
                 
                 duration = time.time() - start_time
                 
-                messages = result.get('messages', [])
                 output_text = ""
                 if messages:
                     last_msg = messages[-1]
@@ -716,7 +861,8 @@ class ReportWriter:
             input_tokens = estimate_tokens(input_message)
             
             chain = prompt | self.llm | StrOutputParser()
-            content = await chain.ainvoke({"input": input_message})
+            invoke_cfg = runnable_config(tags=["writer"], metadata={"topic": topic, "section": section_title})
+            content = await chain.ainvoke({"input": input_message}, config=invoke_cfg)
             
             if not isinstance(content, str):
                 content = str(content)
@@ -780,12 +926,12 @@ class ReportWriter:
         
         report_parts = [
             f"# {state.research_topic}\n",
-            f"**Deep Research Report**\n",
-            f"\n## Executive Summary\n",
+            "**Deep Research Report**\n",
+            "\n## Executive Summary\n",
             f"This report provides a comprehensive analysis of {state.research_topic}. ",
             f"The research was conducted across **{source_count} sources** ",
             f"and synthesized into **{len(report_sections)} key sections**.\n",
-            f"\n## Research Objectives\n"
+            "\n## Research Objectives\n"
         ]
         
         if state.plan and hasattr(state.plan, 'objectives'):

@@ -125,19 +125,15 @@ def track_llm_call(agent_name: str, operation: str, model: str = ""):
                     'success': True
                 }
             except Exception as e:
-                duration = time.time() - start_time
                 logger.error(f"LLM call failed: {e}")
                 raise
         
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
-            start_time = time.time()
             try:
                 result = func(*args, **kwargs)
-                duration = time.time() - start_time
                 return result
             except Exception as e:
-                duration = time.time() - start_time
                 logger.error(f"LLM call failed: {e}")
                 raise
         
