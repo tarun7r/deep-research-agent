@@ -61,12 +61,27 @@ class ResearchConfig(BaseModel):
     # Search Provider Configuration
     search_provider: str = Field(
         default=os.getenv("SEARCH_PROVIDER", "duckduckgo"),
-        description="Search provider: 'duckduckgo' or 'tavily'"
+        description="Search provider: 'duckduckgo', 'tavily', or 'exa'"
     )
 
     tavily_api_key: str = Field(
         default_factory=lambda: os.getenv("TAVILY_API_KEY", ""),
         description="Tavily API key (required when SEARCH_PROVIDER=tavily)"
+    )
+
+    exa_api_key: str = Field(
+        default_factory=lambda: os.getenv("EXA_API_KEY", ""),
+        description="Exa API key (required when SEARCH_PROVIDER=exa)"
+    )
+
+    exa_search_type: str = Field(
+        default=os.getenv("EXA_SEARCH_TYPE", "auto"),
+        description="Exa search type: 'auto', 'neural', 'fast', 'deep', etc."
+    )
+
+    exa_category: str = Field(
+        default=os.getenv("EXA_CATEGORY", ""),
+        description="Optional Exa category filter (e.g., 'research paper', 'news')"
     )
 
     # Search Configuration
