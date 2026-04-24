@@ -15,6 +15,7 @@ import httpx
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 from tavily import AsyncTavilyClient
+from exa_py import Exa
 
 from src.state import SearchResult
 from src.exceptions import (
@@ -339,6 +340,146 @@ class TavilyProvider(SearchProvider):
                 )
 
             raise SearchError(f"Search failed for '{query}'", details=str(e))
+
+
+class ExaProvider(SearchProvider):
+    """Exa AI-powered search provider with circuit breaker.
+
+    Exa returns neural/semantic search results along with rich content
+    (text, highlights, summary) in a single call. The provider exposes
+    the main Exa features: search type, category filtering, domain and
+    text filters, and date ranges. See https://exa.ai/docs for details.
+    """
+
+    INTEGRATION_HEADER = "deep-research-agent"
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        max_results: int = 5,
+        search_type: str = "auto",
+        category: Optional[str] = None,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        include_text: Optional[List[str]] = None,
+        exclude_text: Optional[List[str]] = None,
+        start_published_date: Optional[str] = None,
+        end_published_date: Optional[str] = None,
+        text_max_characters: int = 2000,
+        highlights_max_characters: int = 1000,
+    ):
+        self.max_results = max_results
+        self.search_type = search_type
+        self.category = category
+        self.include_domains = include_domains
+        self.exclude_domains = exclude_domains
+        self.include_text = include_text
+        self.exclude_text = exclude_text
+        self.start_published_date = start_published_date
+        self.end_published_date = end_published_date
+        self.text_max_characters = text_max_characters
+        self.highlights_max_characters = highlights_max_characters
+        self.client = Exa(api_key=api_key)
+        # Attribute API usage to this integration so Exa can track adoption.
+        self.client.headers["x-exa-integration"] = self.INTEGRATION_HEADER
+        self.circuit_breaker = CircuitBreaker(
+            name="exa",
+            failure_threshold=3,
+            reset_timeout=60.0
+        )
+
+    @property
+    def name(self) -> str:
+        return "exa"
+
+    async def search(self, query: str, max_results: Optional[int] = None) -> List[SearchResult]:
+        if not self.circuit_breaker.can_execute():
+            retry_after = self.circuit_breaker.get_retry_after()
+            raise CircuitOpenError("exa", retry_after)
+
+        results_count = max_results or self.max_results
+
+        try:
+            logger.info(f"Searching Exa for: {query}")
+
+            # exa-py's default client is synchronous, so offload to a
+            # worker thread to avoid blocking the event loop (matches the
+            # DuckDuckGo provider's approach).
+            response = await asyncio.to_thread(
+                self._execute_search, query, results_count
+            )
+
+            self.circuit_breaker.record_success()
+
+            results = [
+                self._to_search_result(query, item)
+                for item in getattr(response, "results", []) or []
+            ]
+
+            logger.info(f"Found {len(results)} results for: {query}")
+            return results
+
+        except CircuitOpenError:
+            raise
+        except Exception as e:
+            self.circuit_breaker.record_failure()
+
+            error_str = str(e).lower()
+            if "rate" in error_str or "limit" in error_str or "429" in error_str:
+                raise RateLimitError(
+                    message=f"Exa rate limit: {str(e)}",
+                    retry_after=60,
+                    service="exa"
+                )
+
+            raise SearchError(f"Search failed for '{query}'", details=str(e))
+
+    def _execute_search(self, query: str, max_results: int):
+        kwargs: Dict[str, Any] = {
+            "num_results": max_results,
+            "type": self.search_type,
+            "highlights": {"max_characters": self.highlights_max_characters},
+            "text": {"max_characters": self.text_max_characters},
+        }
+        if self.category:
+            kwargs["category"] = self.category
+        if self.include_domains:
+            kwargs["include_domains"] = self.include_domains
+        if self.exclude_domains:
+            kwargs["exclude_domains"] = self.exclude_domains
+        if self.include_text:
+            kwargs["include_text"] = self.include_text
+        if self.exclude_text:
+            kwargs["exclude_text"] = self.exclude_text
+        if self.start_published_date:
+            kwargs["start_published_date"] = self.start_published_date
+        if self.end_published_date:
+            kwargs["end_published_date"] = self.end_published_date
+        return self.client.search_and_contents(query, **kwargs)
+
+    def _to_search_result(self, query: str, item: Any) -> SearchResult:
+        text = getattr(item, "text", None) or ""
+        highlights = getattr(item, "highlights", None) or []
+        summary = getattr(item, "summary", None) or ""
+
+        # Prefer summary, then joined highlights, then trimmed text.
+        # Any combination may be absent depending on request / result.
+        if summary:
+            snippet = summary
+        elif highlights:
+            snippet = " ... ".join(h for h in highlights if h)
+        elif text:
+            snippet = text[:500]
+        else:
+            snippet = ""
+
+        return SearchResult(
+            query=query,
+            title=getattr(item, "title", "") or "",
+            url=getattr(item, "url", "") or "",
+            snippet=snippet,
+            content=text or None,
+        )
 
 
 class WebSearchTool:

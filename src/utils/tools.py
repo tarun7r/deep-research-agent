@@ -10,6 +10,7 @@ from src.utils.web_utils import (
     ContentExtractor as ContentExtractorImpl,
     DuckDuckGoProvider,
     TavilyProvider,
+    ExaProvider,
 )
 from src.state import SearchResult
 from src.utils.citations import CitationFormatter
@@ -25,6 +26,13 @@ def _build_search_providers():
     if config.search_provider == "tavily":
         return [TavilyProvider(api_key=config.tavily_api_key or None,
                                max_results=config.max_search_results_per_query)]
+    if config.search_provider == "exa":
+        return [ExaProvider(
+            api_key=config.exa_api_key or None,
+            max_results=config.max_search_results_per_query,
+            search_type=config.exa_search_type,
+            category=config.exa_category or None,
+        )]
     # Default: DuckDuckGo
     return [DuckDuckGoProvider(config.max_search_results_per_query)]
 
