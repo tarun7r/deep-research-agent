@@ -3,6 +3,7 @@
 import asyncio
 import re
 import time
+import os
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -339,6 +340,123 @@ class TavilyProvider(SearchProvider):
                 )
 
             raise SearchError(f"Search failed for '{query}'", details=str(e))
+
+
+class YouComProvider(SearchProvider):
+    """You.com search provider using the Search API."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: str = "https://ydc-index.io/v1/search",
+        max_results: int = 5,
+    ):
+        self.api_key = api_key or os.getenv("YDC_API_KEY")
+        self.base_url = base_url
+        self.max_results = max_results
+        self.client_manager = HTTPClientManager.get_instance()
+        self.circuit_breaker = CircuitBreaker(
+            name="youcom",
+            failure_threshold=3,
+            reset_timeout=60.0,
+        )
+        self.user_agent = "youdotcom-integration/tarun7r-deep-research-agent"
+
+    @property
+    def name(self) -> str:
+        return "youcom"
+
+    async def search(self, query: str, max_results: Optional[int] = None) -> List[SearchResult]:
+        if not self.circuit_breaker.can_execute():
+            retry_after = self.circuit_breaker.get_retry_after()
+            raise CircuitOpenError("youcom", retry_after)
+
+        if not self.api_key:
+            raise SearchError(
+                "You.com Search API requires YDC_API_KEY when SEARCH_PROVIDER=youcom"
+            )
+
+        results_count = max_results or self.max_results
+
+        try:
+            logger.info(f"Searching You.com for: {query}")
+            client = await self.client_manager.get_client()
+            response = await client.get(
+                self.base_url,
+                params={
+                    "query": query,
+                    "count": results_count,
+                },
+                headers={
+                    "X-API-Key": self.api_key,
+                    "User-Agent": self.user_agent,
+                },
+            )
+
+            if response.status_code == 429:
+                self.circuit_breaker.record_failure()
+                raise RateLimitError(
+                    message=f"You.com rate limit: {response.text}",
+                    retry_after=60,
+                    service="youcom",
+                )
+
+            response.raise_for_status()
+            payload = response.json()
+
+            self.circuit_breaker.record_success()
+
+            results = self._parse_results(query, payload, results_count)
+            logger.info(f"Found {len(results)} You.com results for: {query}")
+            return results
+
+        except CircuitOpenError:
+            raise
+        except RateLimitError:
+            raise
+        except Exception as e:
+            self.circuit_breaker.record_failure()
+            error_str = str(e).lower()
+            if "429" in error_str or "rate" in error_str or "limit" in error_str:
+                raise RateLimitError(
+                    message=f"You.com rate limit: {str(e)}",
+                    retry_after=60,
+                    service="youcom",
+                )
+            raise SearchError(f"Search failed for '{query}'", details=str(e))
+
+    def _parse_results(
+        self,
+        query: str,
+        payload: Dict[str, Any],
+        max_results: int,
+    ) -> List[SearchResult]:
+        results: List[SearchResult] = []
+        results_block = payload.get("results", {})
+        web_section = results_block.get("web", []) if isinstance(results_block, dict) else []
+        if not isinstance(web_section, list):
+            web_section = []
+
+        for item in web_section[:max_results]:
+            title = item.get("title") or ""
+            url = item.get("url") or ""
+            snippets = item.get("snippets") or []
+            if isinstance(snippets, list) and snippets:
+                snippet = snippets[0]
+            else:
+                snippet = item.get("description") or ""
+
+            if not title or not url:
+                continue
+
+            results.append(SearchResult(
+                query=query,
+                title=title,
+                url=url,
+                snippet=snippet,
+            ))
+
+        return results
 
 
 class WebSearchTool:

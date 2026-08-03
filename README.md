@@ -58,7 +58,7 @@ https://github.com/user-attachments/assets/df8404c6-7423-4a49-864a-bd4d59885c1b
 | **Checkpointing** | Workflow state persistence for crash recovery |
 | **Typed Exceptions** | Domain-specific error handling for better debugging |
 | **Dependency Injection** | Testable agent architecture with injectable LLMs |
-| **Search Provider Abstraction** | Extensible search backend (DuckDuckGo, with easy addition of others) |
+| **Search Provider Abstraction** | Extensible search backend (DuckDuckGo, Tavily, You.com, with easy addition of others) |
 
 ---
 
@@ -276,6 +276,8 @@ SUMMARIZATION_MODEL=gpt-4o-mini
 # =============================================================================
 # SEARCH SETTINGS (optional)
 # =============================================================================
+SEARCH_PROVIDER=duckduckgo       # Options: duckduckgo, tavily, youcom
+YDC_API_KEY=your_youcom_key_here  # Required when SEARCH_PROVIDER=youcom
 MAX_SEARCH_QUERIES=3               # Number of search queries
 MAX_SEARCH_RESULTS_PER_QUERY=3     # Results per query
 MIN_CREDIBILITY_SCORE=40           # Filter threshold (0-100)
@@ -295,6 +297,14 @@ CITATION_STYLE=apa                 # Options: apa, mla, chicago, ieee
 | **llama.cpp** | Free | Local | Fastest | Manual |
 | **Gemini** | Free tier | Cloud | Fast | API key |
 | **OpenAI** | Pay-per-use | Cloud | Fast | API key |
+
+### Search Providers
+
+| Provider | Notes |
+|----------|-------|
+| **DuckDuckGo** | Default provider, no API key required |
+| **Tavily** | Optional API-key-backed provider |
+| **You.com** | Optional Search API provider via `SEARCH_PROVIDER=youcom` and `YDC_API_KEY` |
 
 ---
 
@@ -546,6 +556,7 @@ Built with:
 - [Chainlit](https://github.com/Chainlit/chainlit) - Web interface
 - [httpx](https://www.python-httpx.org/) - Async HTTP client
 - [DuckDuckGo](https://duckduckgo.com/) - Web search
+- [You.com](https://you.com/docs/api-reference/search/v1-search) - Optional search provider
 
 Supports:
 - [Ollama](https://ollama.com/) & [llama.cpp](https://github.com/ggerganov/llama.cpp) - Local models

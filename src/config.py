@@ -61,12 +61,22 @@ class ResearchConfig(BaseModel):
     # Search Provider Configuration
     search_provider: str = Field(
         default=os.getenv("SEARCH_PROVIDER", "duckduckgo"),
-        description="Search provider: 'duckduckgo' or 'tavily'"
+        description="Search provider: 'duckduckgo', 'tavily', or 'youcom'"
     )
 
     tavily_api_key: str = Field(
         default_factory=lambda: os.getenv("TAVILY_API_KEY", ""),
         description="Tavily API key (required when SEARCH_PROVIDER=tavily)"
+    )
+
+    youcom_api_key: str = Field(
+        default_factory=lambda: os.getenv("YDC_API_KEY", ""),
+        description="You.com API key (required when SEARCH_PROVIDER=youcom)"
+    )
+
+    youcom_base_url: str = Field(
+        default=os.getenv("YOUCOM_SEARCH_BASE_URL", "https://ydc-index.io/v1/search"),
+        description="You.com Search API URL"
     )
 
     # Search Configuration
@@ -165,4 +175,3 @@ logger = logging.getLogger(__name__)
 logger.info(f"Configuration loaded - MAX_SEARCH_QUERIES: {config.max_search_queries}, "
            f"MAX_SEARCH_RESULTS_PER_QUERY: {config.max_search_results_per_query}, "
            f"MAX_REPORT_SECTIONS: {config.max_report_sections}")
-

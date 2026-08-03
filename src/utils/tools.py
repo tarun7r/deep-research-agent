@@ -10,6 +10,7 @@ from src.utils.web_utils import (
     ContentExtractor as ContentExtractorImpl,
     DuckDuckGoProvider,
     TavilyProvider,
+    YouComProvider,
 )
 from src.state import SearchResult
 from src.utils.citations import CitationFormatter
@@ -22,6 +23,15 @@ logger = logging.getLogger(__name__)
 # Initialize tool implementations with config values
 def _build_search_providers():
     """Build the search providers list based on config.search_provider."""
+    if config.search_provider == "youcom":
+        return [
+            YouComProvider(
+                api_key=config.youcom_api_key or None,
+                base_url=config.youcom_base_url,
+                max_results=config.max_search_results_per_query,
+            ),
+            DuckDuckGoProvider(config.max_search_results_per_query),
+        ]
     if config.search_provider == "tavily":
         return [TavilyProvider(api_key=config.tavily_api_key or None,
                                max_results=config.max_search_results_per_query)]
