@@ -556,7 +556,7 @@ Built with:
 - [Chainlit](https://github.com/Chainlit/chainlit) - Web interface
 - [httpx](https://www.python-httpx.org/) - Async HTTP client
 - [DuckDuckGo](https://duckduckgo.com/) - Web search
-- [You.com](https://you.com/docs/api-reference/search/v1-search) - Optional search provider
+- [You.com](https://you.com/docs/api-reference/search/v1-search?utm_source=tarun7r-deep-research-agent&utm_medium=oss_integration&utm_campaign=2026-08-oss-integrations&utm_content=readme) - Optional search provider
 
 Supports:
 - [Ollama](https://ollama.com/) & [llama.cpp](https://github.com/ggerganov/llama.cpp) - Local models
