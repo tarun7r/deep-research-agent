@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "An efficient deep research agent using LangGraph with free tools"
 requires-python = ">=3.11"
 dependencies = [
+    "mcp>=1.26,<2",
     "langgraph>=0.2.57",
     "langchain>=0.3.13",
     "langchain-google-genai>=2.0.8",

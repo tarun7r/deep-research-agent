@@ -276,6 +276,7 @@ SUMMARIZATION_MODEL=gpt-4o-mini
 # =============================================================================
 # SEARCH SETTINGS (optional)
 # =============================================================================
+SEARCH_PROVIDER=duckduckgo         # Options: duckduckgo, tavily, parallel
 MAX_SEARCH_QUERIES=3               # Number of search queries
 MAX_SEARCH_RESULTS_PER_QUERY=3     # Results per query
 MIN_CREDIBILITY_SCORE=40           # Filter threshold (0-100)
@@ -286,6 +287,21 @@ MIN_CREDIBILITY_SCORE=40           # Filter threshold (0-100)
 MAX_REPORT_SECTIONS=8              # Maximum sections in report
 CITATION_STYLE=apa                 # Options: apa, mla, chicago, ieee
 ```
+
+### Keyless Parallel Search
+
+Set `SEARCH_PROVIDER=parallel` in `.env` to use the anonymous
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+endpoint at `https://search.parallel.ai/mcp` over Streamable HTTP. No Parallel
+API key or account is required. DuckDuckGo remains the default; selecting
+Tavily continues to use its existing provider.
+
+Install with `pip install -r requirements.txt`, then run `python main.py` or
+`chainlit run app.py` as usual. Model setup is still required and model inference
+may have its own costs. The anonymous service is intended for light use and has
+rate limits. Search excerpts map to the existing result snippets, and
+`MAX_SEARCH_RESULTS_PER_QUERY` caps returned results locally. Webpage extraction
+continues to use the existing content extractor.
 
 ### Model Provider Comparison
 
