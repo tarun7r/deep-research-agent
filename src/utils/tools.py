@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 # Initialize tool implementations with config values
 def _build_search_providers():
     """Build the search providers list based on config.search_provider."""
+    if config.search_provider == "parallel":
+        from src.utils.parallel_search import ParallelSearchProvider
+        return [ParallelSearchProvider(config.max_search_results_per_query)]
     if config.search_provider == "tavily":
         return [TavilyProvider(api_key=config.tavily_api_key or None,
                                max_results=config.max_search_results_per_query)]
@@ -39,7 +42,7 @@ _citation_formatter = CitationFormatter()
 
 @tool
 async def web_search(query: str, max_results: int = None) -> List[dict]:
-    """Search the web for authoritative information using DuckDuckGo search engine.
+    """Search the web for authoritative information using the configured search provider.
     
     This tool executes web searches to find current, accurate information from diverse sources
     including academic papers, official documentation, news articles, and expert analyses.

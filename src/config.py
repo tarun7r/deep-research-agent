@@ -61,7 +61,7 @@ class ResearchConfig(BaseModel):
     # Search Provider Configuration
     search_provider: str = Field(
         default=os.getenv("SEARCH_PROVIDER", "duckduckgo"),
-        description="Search provider: 'duckduckgo' or 'tavily'"
+        description="Search provider: 'duckduckgo', 'tavily', or 'parallel'"
     )
 
     tavily_api_key: str = Field(
